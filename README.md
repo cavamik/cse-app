@@ -1,32 +1,24 @@
-# React + TypeScript + Vite
+# Sopralluoghi CSE
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Applicazione per i verbali di sopralluogo del Coordinatore per l’esecuzione dei lavori (D.Lgs. 81/08). I dati restano nel browser del dispositivo.
 
-Currently, two official plugins are available:
+## Avvio
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Poi apri l’indirizzo indicato da Vite, in genere `http://localhost:5173`.
+
+## Flusso
+
+1. Archivio cantieri: crea o seleziona un cantiere e avvia un verbale.
+2. Imprese presenti, anche con ruoli aggiunti al momento.
+3. Apprestamenti e attrezzature, con la funzione specifica del sopralluogo.
+4. Lavorazioni osservate, imprese esecutrici e fotografie.
+5. Osservazioni, intervento correttivo, impresa destinataria e termine.
+6. Prossime lavorazioni, interferenze e note per PSC / layout.
+7. Riepilogo consultabile, stampabile o salvabile in PDF dal browser.
+
+Dall’archivio si possono esportare e reimportare i dati in JSON.
