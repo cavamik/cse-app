@@ -38,9 +38,23 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
 }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // 1. Filtro per cantiere
   const listaFiltrata = selectedCantiereId
     ? sopralluoghi.filter((s) => s.cantiere_id === selectedCantiereId)
     : sopralluoghi;
+
+  // 2. ORDINAMENTO CRONOLOGICO: dal più recente in alto al più vecchio in basso
+  const listaOrdinata = [...listaFiltrata].sort((a, b) => {
+    const timeA = new Date(`${a.data}T${a.ora || '00:00'}`).getTime();
+    const timeB = new Date(`${b.data}T${b.ora || '00:00'}`).getTime();
+
+    if (!isNaN(timeA) && !isNaN(timeB)) {
+      return timeB - timeA; // Decrescente (newest first)
+    }
+
+    // Fallback su stringa data (YYYY-MM-DD)
+    return (b.data || '').localeCompare(a.data || '');
+  });
 
   const getCantiereNome = (id: string) => {
     return cantieri.find((c) => c.id === id)?.nome || 'Cantiere N.D.';
@@ -56,7 +70,7 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Registro Sopralluoghi CSE</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Elenco sintetico dei verbali di sicurezza (D.Lgs. 81/08)</p>
+          <p className="text-xs text-slate-400 mt-0.5">Elenco cronologico delle ispezioni di sicurezza (D.Lgs. 81/08)</p>
         </div>
 
         <button
@@ -101,8 +115,8 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
         )}
       </div>
 
-      {/* Lista Compatta dei Sopralluoghi */}
-      {listaFiltrata.length === 0 ? (
+      {/* Lista dei Sopralluoghi in Ordine Cronologico Decrescente */}
+      {listaOrdinata.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
           <FileText className="w-10 h-10 text-slate-600 mx-auto" />
           <h3 className="text-base font-semibold text-slate-200">Nessun verbale trovato</h3>
@@ -112,7 +126,7 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
         </div>
       ) : (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
-          {listaFiltrata.map((s) => {
+          {listaOrdinata.map((s) => {
             const isExpanded = expandedId === s.id;
             const hasPrescrizioni = Boolean(s.prescrizioni_lista && s.prescrizioni_lista.length > 0);
 
@@ -129,7 +143,7 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
                         {getCantiereNome(s.cantiere_id)}
                       </h3>
                       <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
-                        <span>Data: {s.data}</span>
+                        <span>Data: <strong>{s.data}</strong></span>
                         {s.ora && <span>Ore: {s.ora}</span>}
                       </div>
                     </div>
@@ -138,18 +152,18 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
                   {/* Esito e Azioni */}
                   <div className="flex items-center space-x-2 self-end sm:self-auto">
                     {s.sospensione_lavori ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-500 text-white animate-pulse">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500 text-white animate-pulse">
                         <AlertOctagon className="w-3 h-3 mr-1" />
                         SOSPESO
                       </span>
                     ) : hasPrescrizioni ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
                         <AlertTriangle className="w-3 h-3 mr-1" />
                         {s.prescrizioni_lista.length} prescrizioni
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
                         Regolare
                       </span>
                     )}
@@ -213,9 +227,19 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
                         <span className="font-bold text-slate-400 uppercase tracking-wider block mb-1">
                           Fasi di lavoro in svolgimento:
                         </span>
-                        <p className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
-                          {s.lavorazioni_in_corso || 'Nessuna specifica.'}
-                        </p>
+                        {s.fasi_lavoro && s.fasi_lavoro.length > 0 ? (
+                          <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 space-y-1">
+                            {s.fasi_lavoro.map((f, idx) => (
+                              <p key={idx} className="text-slate-200">
+                                &bull; {f.descrizione} {f.impresa && <span className="text-amber-400">({f.impresa})</span>}
+                              </p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                            {s.lavorazioni_in_corso || 'Nessuna specifica.'}
+                          </p>
+                        )}
                       </div>
 
                       <div>

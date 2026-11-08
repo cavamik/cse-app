@@ -53,11 +53,12 @@ export const App: React.FC = () => {
       }));
       setCantieri(mappedCantieri);
 
-      // 2. Sopralluoghi
+// 2. Sopralluoghi ordinati per data decrescente
       const { data: sData } = await supabase
         .from('sopralluoghi')
         .select('*')
-        .order('data', { ascending: false });
+        .order('data', { ascending: false })
+        .order('ora', { ascending: false });
 
       const mappedSopralluoghi: Sopralluogo[] = (sData || []).map((item: any) => ({
         id: item.id,
