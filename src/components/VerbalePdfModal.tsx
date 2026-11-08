@@ -18,7 +18,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 }) => {
   const [loadingAssets, setLoadingAssets] = useState(false);
 
-  // Dati Studio sincronizzati con Supabase
+  // Asset dello Studio sincronizzati con Supabase Cloud
   const [logoStudio, setLogoStudio] = useState<string | null>(null);
   const [timbroFirma, setTimbroFirma] = useState<string | null>(null);
 
@@ -30,15 +30,20 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
   const [timbroHeightCm, setTimbroHeightCm] = useState<number>(4.0);
   const [timbroMarginMm, setTimbroMarginMm] = useState<number>(-8);
 
-  // Carica le impostazioni dello studio da Supabase all'apertura
+  // Caricamento sicuro da Supabase all'apertura del modale
   useEffect(() => {
     const fetchStudioSettings = async () => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('impostazioni_studio')
           .select('*')
           .eq('id', 'principale')
-          .single();
+          .maybeSingle();
+
+        if (error) {
+          console.warn('Avviso lettura impostazioni studio:', error.message);
+          return;
+        }
 
         if (data) {
           if (data.logo_url) setLogoStudio(data.logo_url);
@@ -51,7 +56,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
           if (data.timbro_margin_mm !== null) setTimbroMarginMm(Number(data.timbro_margin_mm));
         }
       } catch (err) {
-        console.error('Errore caricamento impostazioni studio da Supabase:', err);
+        console.error('Errore recupero impostazioni:', err);
       }
     };
 
@@ -66,7 +71,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     window.print();
   };
 
-  // Upload Logo su Supabase Storage e salvataggio URL su DB
+  // Caricamento Logo su Supabase Cloud (Storage + DB)
   const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -76,6 +81,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       const ext = file.name.split('.').pop() || 'svg';
       const path = `studio/logo_studio_${Date.now()}.${ext}`;
 
+      // 1. Upload nel bucket Supabase
       const { error: upErr } = await supabase.storage
         .from('foto-sopralluoghi')
         .upload(path, file, {
@@ -85,15 +91,19 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 
       if (upErr) throw upErr;
 
+      // 2. Ottieni URL pubblico permanente
       const { data: pData } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
       const url = pData.publicUrl;
 
-      // Salva nel database Supabase
-      await supabase
+      // 3. Salva nella tabella impostazioni_studio
+      const { error: dbErr } = await supabase
         .from('impostazioni_studio')
         .upsert({ id: 'principale', logo_url: url, updated_at: new Date().toISOString() });
 
+      if (dbErr) throw dbErr;
+
       setLogoStudio(url);
+      alert('Logo salvato su Supabase Cloud con successo! Sarà visibile su tutti i dispositivi.');
     } catch (err: any) {
       alert('Errore caricamento logo su Supabase: ' + err.message);
     } finally {
@@ -108,7 +118,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       .upsert({ id: 'principale', logo_url: null, updated_at: new Date().toISOString() });
   };
 
-  // Upload Timbro PNG su Supabase Storage e salvataggio URL su DB
+  // Caricamento Timbro PNG su Supabase Cloud
   const handleUploadTimbro = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -129,12 +139,14 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       const { data: pData } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
       const url = pData.publicUrl;
 
-      // Salva nel database Supabase
-      await supabase
+      const { error: dbErr } = await supabase
         .from('impostazioni_studio')
         .upsert({ id: 'principale', timbro_url: url, updated_at: new Date().toISOString() });
 
+      if (dbErr) throw dbErr;
+
       setTimbroFirma(url);
+      alert('Timbro salvato su Supabase Cloud con successo!');
     } catch (err: any) {
       alert('Errore caricamento timbro su Supabase: ' + err.message);
     } finally {
@@ -184,7 +196,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     updateSettingInDb('foto_height_cm', val);
   };
 
-  // Lettura e risoluzione presenze
+  // Risoluzione presenze
   const pres = sopralluogo.presenze;
   const committentePres = pres?.committente?.presente;
   const committenteNome = pres?.committente?.nome || cantiere?.committente;
@@ -272,10 +284,10 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             
             <div className="flex flex-wrap items-center gap-2">
-              {/* Carica Logo con sync Supabase */}
+              {/* Carica Logo */}
               <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
-                {loadingAssets ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 text-amber-400" />}
-                <span>{logoStudio ? 'Sostituisci Logo Cloud' : 'Carica Logo Studio (SVG)'}</span>
+                {loadingAssets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <Upload className="w-3.5 h-3.5 text-amber-400" />}
+                <span>{logoStudio ? 'Sostituisci Logo Cloud' : 'Carica Logo Cloud (SVG)'}</span>
                 <input 
                   type="file" 
                   accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" 
@@ -295,7 +307,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 </button>
               )}
 
-              {/* Carica Timbro PNG con sync Supabase */}
+              {/* Carica Timbro PNG */}
               <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                 <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
                 <span>{timbroFirma ? 'Cambia Timbro PNG' : 'Carica Timbro PNG'}</span>
@@ -434,7 +446,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             }}
           >
             
-            {/* 1. LOGO A TUTTA LARGHEZZA A FILO DEL MARGINE SUPERIORE */}
+            {/* 1. LOGO A TUTTA LARGHEZZA SENZA MARGINE SUPERIORE */}
             {logoStudio && (
               <div className="w-full mb-5 avoid-break text-center mt-0 pt-0">
                 <img 
@@ -478,7 +490,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               Al fine di promuovere il coordinamento, nonché di assicurare l'applicazione delle disposizioni contenute nel piano di sicurezza e coordinamento e delle relative procedure di lavoro sono convenute le seguenti persone:
             </p>
 
-            {/* 5. SOGGETTI CONVENUTI (Committente -> DL -> Progettista -> CSE -> Imprese in 2 colonne) */}
+            {/* 5. SOGGETTI CONVENUTI */}
             <div className="space-y-1 text-[9.5pt] mb-5 pl-3 border-l-2 border-neutral-400 avoid-break">
               {committentePres && (
                 <p><strong>Committente:</strong> {committenteNome}</p>
