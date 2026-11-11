@@ -43,10 +43,10 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
 
-  // Anteprima PDF
+  // Anteprima PDF dal vivo
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  // Presenze
+  // Presenze gerarchiche
   const [presenze, setPresenze] = useState<PresenzeConvenuti>({
     committente: { presente: false, nome: '' },
     dl: { presente: false, nome: '' },
@@ -64,10 +64,9 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     DISPOSITIVI_PREDEFINITI.map(d => ({ nome: d, selezionato: false, note: '' }))
   );
 
-  // Archivio totale imprese per controllo duplicati
+  // Database Imprese
   const [tutteLeImpreseDB, setTutteLeImpreseDB] = useState<Impresa[]>([]);
   const [impreseSelezionate, setImpreseSelezionate] = useState<string[]>([]);
-  const [filtroRicercaImpresa, setFiltroRicercaImpresa] = useState('');
   const [nuovaImpresaNome, setNuovaImpresaNome] = useState('');
   const [mostraAddImpresa, setMostraAddImpresa] = useState(false);
 
@@ -146,7 +145,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   }, [sopralluogoToEdit, initialCantiereId, cantieri, isOpen]);
 
-  // Caricamento archivio completo imprese da DB
+  // Caricamento archivio completo imprese
   const fetchTutteLeImprese = async () => {
     try {
       const { data, error } = await supabase
@@ -170,7 +169,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
   if (!isOpen) return null;
 
-  // Verbale dal vivo per anteprima
+  // Verbale dal vivo per l'anteprima
   const verbaleInAnteprima: Sopralluogo = {
     id: sopralluogoToEdit?.id || 'anteprima-live',
     cantiere_id: cantiereId,
@@ -198,7 +197,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     motivo_sospensione: sospensione ? motivoSospensione : undefined,
   };
 
-  // Riordino Su / Giù
+  // Funzione generica per spostare elementi Su o Giù
   const moveItem = <T,>(list: T[], index: number, direction: 'up' | 'down'): T[] => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= list.length) return list;
@@ -209,44 +208,50 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     return copy;
   };
 
-  // 1. Fasi di Lavoro
+  // 1. Fasi di Lavoro (Aggiunta in cima + Riordino)
   const addFaseLavoro = () => setFasiLavoro(prev => [{ id: crypto.randomUUID(), descrizione: '', impresa: '' }, ...prev]);
   const removeFaseLavoro = (id: string) => setFasiLavoro(prev => prev.filter(f => f.id !== id));
   const updateFaseLavoro = (id: string, field: 'descrizione' | 'impresa', value: string) => setFasiLavoro(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f));
   const moveFaseLavoro = (index: number, direction: 'up' | 'down') => setFasiLavoro(prev => moveItem(prev, index, direction));
 
-  // 2. Rilievi
+  // 2. Rilievi (Aggiunta in cima + Riordino)
   const addRilievo = () => setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }, ...prev]);
   const removeRilievo = (id: string) => setRilievi(prev => prev.filter(r => r.id !== id));
   const updateRilievoTesto = (id: string, text: string) => setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
   const moveRilievo = (index: number, direction: 'up' | 'down') => setRilievi(prev => moveItem(prev, index, direction));
 
-  // 3. Prescrizioni
+  // 3. Prescrizioni (Aggiunta in cima + Riordino)
   const addPrescrizione = () => setPrescrizioni(prev => [{ id: crypto.randomUUID(), testo: '', impresa_destinataria: '', data_scadenza: '' }, ...prev]);
   const removePrescrizione = (id: string) => setPrescrizioni(prev => prev.filter(p => p.id !== id));
   const updatePrescrizione = (id: string, field: keyof PrescrizioneItem, val: string) => setPrescrizioni(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
   const movePrescrizione = (index: number, direction: 'up' | 'down') => setPrescrizioni(prev => moveItem(prev, index, direction));
 
-  // Dispositivi
-  const toggleDispositivo = (index: number) => setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, selezionato: !item.selezionato } : item));
-  const updateNotaDispositivo = (index: number, nota: string) => setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, note: nota } : item));
-  const updateNomeDispositivo = (index: number, nome: string) => setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, nome: nome } : item));
-  const addAltroDispositivo = () => setDispositivi(prev => [...prev, { id: crypto.randomUUID(), nome: 'ALTRO', selezionato: true, note: '' }]);
-  const removeDispositivoCustom = (index: number) => setDispositivi(prev => prev.filter((_, i) => i !== index));
-
-  // Toggle selezione impresa
-  const toggleImpresa = (nome: string) => {
-    setImpreseSelezionate(prev => 
-      prev.includes(nome) ? prev.filter(i => i !== nome) : [...prev, nome]
-    );
+  // 4. GESTIONE E RIORDINO IMPRESE PRESENTI (Spuntate / Spostabili con freccette)
+  const aggiungiImpresaPresente = (nome: string) => {
+    if (!impreseSelezionate.includes(nome)) {
+      setImpreseSelezionate(prev => [...prev, nome]);
+    }
   };
 
-  // Rimuovi esplicitamente un'impresa da quelle selezionate
-  const rimuoviImpresaSelezionata = (nome: string) => {
-    setImpreseSelezionate(prev => prev.filter(i => i !== nome));
+  const rimuoviImpresaPresente = (nome: string) => {
+    setImpreseSelezionate(prev => prev.filter(n => n !== nome));
   };
 
-  // Creazione nuova impresa
+  const moveImpresaPresente = (index: number, direction: 'up' | 'down') => {
+    setImpreseSelezionate(prev => moveItem(prev, index, direction));
+  };
+
+  // Imprese associate a questo cantiere ma non ancora spuntate tra i presenti
+  const altreImpreseDelCantiere = tutteLeImpreseDB.filter(
+    imp => imp.cantiere_id === cantiereId && !impreseSelezionate.includes(imp.ragione_sociale)
+  );
+
+  // Altre imprese dell'archivio generale (non di questo cantiere e non ancora spuntate)
+  const altreImpreseArchivioGenerale = tutteLeImpreseDB.filter(
+    imp => imp.cantiere_id !== cantiereId && !impreseSelezionate.includes(imp.ragione_sociale)
+  );
+
+  // Creazione nuova impresa con controllo duplicati
   const handleVerificaECreaNuovaImpresa = async () => {
     const nome = nuovaImpresaNome.trim();
     if (!nome) return;
@@ -269,10 +274,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const handleUsaEsistente = () => {
     if (!conflittoImpresa) return;
     const nomeEsistente = conflittoImpresa.impresaEsistente.ragione_sociale;
-
-    if (!impreseSelezionate.includes(nomeEsistente)) {
-      setImpreseSelezionate(prev => [...prev, nomeEsistente]);
-    }
+    aggiungiImpresaPresente(nomeEsistente);
     setNuovaImpresaNome('');
     setMostraAddImpresa(false);
     setConflittoImpresa(null);
@@ -294,7 +296,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
     if (!error && data) {
       setTutteLeImpreseDB(prev => [...prev, data]);
-      setImpreseSelezionate(prev => [...prev, nome]);
+      aggiungiImpresaPresente(nome);
       setNuovaImpresaNome('');
       setMostraAddImpresa(false);
     } else if (error) {
@@ -302,14 +304,36 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   };
 
-  // Foto
+  // Dispositivi e apprestamenti
+  const toggleDispositivo = (index: number) => {
+    setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, selezionato: !item.selezionato } : item));
+  };
+  const updateNotaDispositivo = (index: number, nota: string) => {
+    setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, note: nota } : item));
+  };
+  const updateNomeDispositivo = (index: number, nome: string) => {
+    setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, nome: nome } : item));
+  };
+  const addAltroDispositivo = () => {
+    setDispositivi(prev => [...prev, { id: crypto.randomUUID(), nome: 'ALTRO', selezionato: true, note: '' }]);
+  };
+  const removeDispositivoCustom = (index: number) => {
+    setDispositivi(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Gestione foto
   const handleFilesChange = (rilievoId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const files = Array.from(e.target.files);
     setFilesPerRilievo(prev => ({ ...prev, [rilievoId]: [...(prev[rilievoId] || []), ...files] }));
   };
   const handleRemoveExistingPhoto = (rilievoId: string, urlToRemove: string) => {
-    setRilievi(prev => prev.map(r => r.id === rilievoId ? { ...r, foto_urls: (r.foto_urls || []).filter(url => url !== urlToRemove) } : r));
+    setRilievi(prev => prev.map(r => {
+      if (r.id === rilievoId) {
+        return { ...r, foto_urls: (r.foto_urls || []).filter(url => url !== urlToRemove) };
+      }
+      return r;
+    }));
   };
   const handleRemoveStagedFile = (rilievoId: string, fileIndex: number) => {
     setFilesPerRilievo(prev => ({ ...prev, [rilievoId]: (prev[rilievoId] || []).filter((_, idx) => idx !== fileIndex) }));
@@ -394,19 +418,12 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   };
 
-  const impreseDaMostrare = tutteLeImpreseDB.filter(imp => {
-    if (filtroRicercaImpresa.trim()) {
-      return imp.ragione_sociale.toLowerCase().includes(filtroRicercaImpresa.toLowerCase());
-    }
-    return !imp.cantiere_id || imp.cantiere_id === cantiereId;
-  });
-
   return (
     <>
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl my-auto text-sm relative">
           
-          {/* Header Modale con pulsante Anteprima PDF */}
+          {/* Header Modale */}
           <div className="p-4 sm:p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950/70 sticky top-0 z-10">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
@@ -493,16 +510,17 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             </div>
 
             {/* SOGGETTI CONVENUTI */}
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-4">
               <div>
                 <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-amber-500" />
                   Soggetti Convenuti e Presenti alla Riunione
                 </label>
-                <span className="text-xs text-slate-500">Spunta i presenti (i nominativi arrivano dall'archivio del cantiere)</span>
+                <span className="text-xs text-slate-500">Spunta le figure presenti e ordina la lista delle imprese con le freccette</span>
               </div>
 
-              <div className="space-y-2.5 border-b border-slate-800 pb-3.5">
+              {/* Figure Principali (Committente, DL, Progettista, CSE) */}
+              <div className="space-y-2.5 border-b border-slate-800 pb-4">
                 {/* 1. Committente */}
                 <div className="flex items-center gap-2.5">
                   <label className="flex items-center gap-2 w-44 text-slate-300 cursor-pointer select-none text-xs">
@@ -513,7 +531,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                         ...p,
                         committente: { presente: e.target.checked, nome: p.committente?.nome || '' }
                       }))}
-                      className="accent-amber-500 rounded w-4 h-4"
+                      className="accent-amber-500 rounded w-4 h-4 cursor-pointer"
                     />
                     <span className="font-bold">1. Committente</span>
                   </label>
@@ -539,7 +557,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                         ...p,
                         dl: { presente: e.target.checked, nome: p.dl?.nome || '' }
                       }))}
-                      className="accent-amber-500 rounded w-4 h-4"
+                      className="accent-amber-500 rounded w-4 h-4 cursor-pointer"
                     />
                     <span className="font-bold">2. DL (Dir. Lavori)</span>
                   </label>
@@ -565,7 +583,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                         ...p,
                         progettista: { presente: e.target.checked, nome: p.progettista?.nome || '' }
                       }))}
-                      className="accent-amber-500 rounded w-4 h-4"
+                      className="accent-amber-500 rounded w-4 h-4 cursor-pointer"
                     />
                     <span className="font-bold">3. Progettista</span>
                   </label>
@@ -591,7 +609,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                         ...p,
                         cse: { presente: e.target.checked, nome: p.cse?.nome || 'arch. Cavalleri Michele' }
                       }))}
-                      className="accent-amber-500 rounded w-4 h-4"
+                      className="accent-amber-500 rounded w-4 h-4 cursor-pointer"
                     />
                     <span className="font-bold text-amber-400">4. CSE</span>
                   </label>
@@ -607,98 +625,151 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 </div>
               </div>
 
-              {/* 5. Imprese Convenute con Box di Controllo Visivo */}
+              {/* 5. GESTIONE IMPRESE: CROCETTA + FRECCE DI ORDINAMENTO (ZERO RIDONDANZA) */}
               <div className="space-y-3 pt-1">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-slate-300 text-xs">
-                    5. Imprese Presenti Oggi ({impreseSelezionate.length} selezionate)
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="font-bold text-slate-200 text-xs uppercase tracking-wider">
+                    5. Imprese Presenti Oggi ({impreseSelezionate.length})
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setMostraAddImpresa(!mostraAddImpresa)}
-                    className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> + Aggiungi Impresa
-                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    Usa le frecce <strong className="text-amber-400">↑ ↓</strong> per stabilire l'ordine nel verbale
+                  </span>
                 </div>
 
-                {/* BOX VISIVO: Mostra ESATTAMENTE le imprese attualmente selezionate nel verbale, con la X per rimuoverle */}
-                {impreseSelezionate.length > 0 && (
-                  <div className="p-2.5 bg-slate-900/90 border border-amber-500/30 rounded-xl space-y-1.5 shadow-inner">
-                    <span className="text-[11px] text-amber-400 font-semibold block">
-                      Imprese inserite nel verbale (clicca la X per rimuoverne una):
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      {impreseSelezionate.map(nome => (
-                        <span 
-                          key={nome} 
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs shadow-sm"
-                        >
-                          <span>{nome}</span>
-                          <button
-                            type="button"
-                            title={`Rimuovi ${nome} dal verbale`}
-                            onClick={() => rimuoviImpresaSelezionata(nome)}
-                            className="w-4 h-4 rounded-full bg-slate-950/20 hover:bg-rose-700 text-white flex items-center justify-center cursor-pointer transition"
+                {/* LISTA DELLE IMPRESE PRESENTI (ORDINABILE E MODIFICABILE) */}
+                {impreseSelezionate.length === 0 ? (
+                  <div className="p-3 bg-slate-900/40 border border-dashed border-slate-800 rounded-xl text-center text-xs text-slate-500">
+                    Nessuna impresa ancora inclusa tra i presenti. Spunta una delle imprese sotto o aggiungine una.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {impreseSelezionate.map((nome, idx) => (
+                      <div 
+                        key={nome}
+                        className="p-2 bg-slate-900 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 shadow-sm hover:border-amber-500 transition"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {/* Frecce Su/Giù per riordinare l'elenco dei presenti */}
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              title="Sposta su"
+                              disabled={idx === 0}
+                              onClick={() => moveImpresaPresente(idx, 'up')}
+                              className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Sposta giù"
+                              disabled={idx === impreseSelezionate.length - 1}
+                              onClick={() => moveImpresaPresente(idx, 'down')}
+                              className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-slate-500 font-mono text-xs w-5 text-center ml-1">{idx + 1}.</span>
+                          </div>
+
+                          {/* Crocetta Spuntata (Cliccandola si deseleziona) */}
+                          <div 
+                            onClick={() => rimuoviImpresaPresente(nome)}
+                            className="flex items-center gap-2 cursor-pointer select-none text-slate-100 hover:text-amber-300 font-semibold text-xs sm:text-sm"
                           >
-                            <X className="w-3 h-3 stroke-[3]" />
-                          </button>
-                        </span>
+                            <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span>{nome}</span>
+                          </div>
+                        </div>
+
+                        {/* Rimuovi */}
+                        <button
+                          type="button"
+                          title="Rimuovi dal verbale"
+                          onClick={() => rimuoviImpresaPresente(nome)}
+                          className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ALTRE IMPRESE DEL CANTIERE NON ANCORA SPUNTATE */}
+                {altreImpreseDelCantiere.length > 0 && (
+                  <div className="pt-2">
+                    <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                      Altre imprese registrate in questo cantiere (clicca la crocetta per includerle):
+                    </span>
+                    <div className="space-y-1">
+                      {altreImpreseDelCantiere.map(imp => (
+                        <div
+                          key={imp.id}
+                          onClick={() => aggiungiImpresaPresente(imp.ragione_sociale)}
+                          className="p-2 bg-slate-900/60 border border-slate-800/80 rounded-lg flex items-center justify-between text-xs text-slate-300 hover:text-white hover:bg-slate-800/50 cursor-pointer transition select-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Square className="w-4 h-4 text-slate-500" />
+                            <span>{imp.ragione_sociale}</span>
+                            {imp.ruolo && <span className="text-[10px] text-slate-500 uppercase">({imp.ruolo})</span>}
+                          </div>
+                          <span className="text-[11px] text-amber-400/80 font-medium">+ Includi</span>
+                        </div>
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* AGGIUNGI DA ARCHIVIO GENERALE O NUOVA */}
+                <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  {/* Selettore rapido da archivio */}
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        aggiungiImpresaPresente(e.target.value);
+                      }
+                    }}
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="">+ Aggiungi da Archivio Generale...</option>
+                    {altreImpreseArchivioGenerale.map(imp => (
+                      <option key={imp.id} value={imp.ragione_sociale}>
+                        {imp.ragione_sociale} {imp.p_iva ? `(${imp.p_iva})` : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setMostraAddImpresa(!mostraAddImpresa)}
+                    className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-slate-950 font-bold rounded-lg border border-amber-500/30 transition cursor-pointer text-xs flex items-center justify-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Nuova Impresa</span>
+                  </button>
+                </div>
+
+                {/* Form nuova impresa */}
                 {mostraAddImpresa && (
-                  <div className="flex gap-2 p-2 bg-slate-900 border border-slate-800 rounded-lg">
+                  <div className="flex gap-2 p-2.5 bg-slate-900 border border-amber-500/30 rounded-xl mt-1">
                     <input
                       type="text"
-                      placeholder="Ragione sociale impresa..."
+                      placeholder="Ragione sociale nuova impresa..."
                       value={nuovaImpresaNome}
                       onChange={(e) => setNuovaImpresaNome(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-sm text-white"
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
                     />
                     <button
                       type="button"
                       onClick={handleVerificaECreaNuovaImpresa}
                       className="px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg cursor-pointer text-xs"
                     >
-                      Verifica e Inserisci
+                      Salva e Includi
                     </button>
                   </div>
                 )}
-
-                {impreseDaMostrare.length > 4 && (
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                    <input
-                      type="text"
-                      placeholder="Cerca tra le imprese dell'archivio..."
-                      value={filtroRicercaImpresa}
-                      onChange={(e) => setFiltroRicercaImpresa(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                )}
-
-                {/* Bottoni di selezione rapida */}
-                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pt-1">
-                  {impreseDaMostrare.map(imp => {
-                    const sel = impreseSelezionate.includes(imp.ragione_sociale);
-                    return (
-                      <button
-                        key={imp.id}
-                        type="button"
-                        onClick={() => toggleImpresa(imp.ragione_sociale)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
-                          sel ? 'bg-amber-500 text-slate-950 border-amber-500 font-bold shadow-sm' : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
-                        }`}
-                      >
-                        {sel ? '✓ ' : '+ '} {imp.ragione_sociale}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
             </div>
 
@@ -859,7 +930,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             </div>
 
-            {/* ARGOMENTI DISCUSSI (AREA TESTO GRANDE) */}
+            {/* ARGOMENTI DISCUSSI */}
             <div className="space-y-1.5">
               <label className="block font-semibold text-slate-200 text-xs sm:text-sm">
                 Nel Corso della Riunione Sono Stati Discussi i Seguenti Argomenti:
@@ -974,7 +1045,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                               onClick={() => handleRemoveStagedFile(ril.id, fileIdx)}
                               className="absolute top-1 right-1 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center cursor-pointer shadow-md"
                             >
-                              <X className="w-4 h-4 stroke-[3]" />
+                              <X className="w-3.5 h-3.5 stroke-[3]" />
                             </button>
                           </div>
                         ))}
@@ -1096,7 +1167,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               )}
             </div>
 
-            {/* Footer con pulsante Anteprima PDF e Salvataggio */}
+            {/* Footer */}
             <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky bottom-0 bg-slate-900 pb-1">
               <button
                 type="button"
@@ -1130,7 +1201,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
           </form>
 
-          {/* Finestra Gestione Conflitto Impresa */}
+          {/* Modal Conflitto Impresa */}
           {conflittoImpresa && (
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-slate-900 border border-amber-500/50 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
@@ -1171,7 +1242,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   <button
                     type="button"
                     onClick={() => setConflittoImpresa(null)}
-                    className="w-full py-1 text-slate-500 hover:text-slate-300 text-[11px] text-center"
+                    className="w-full py-1 text-slate-500 hover:text-slate-300 text-[11px] text-center cursor-pointer"
                   >
                     Annulla
                   </button>
@@ -1183,7 +1254,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         </div>
       </div>
 
-      {/* Anteprima PDF */}
+      {/* Anteprima PDF in tempo reale */}
       {isPreviewOpen && (
         <VerbalePdfModal
           isOpen={isPreviewOpen}
