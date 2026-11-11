@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Users, Building2, Plus, Phone, UserCheck, 
-  FolderOpen, ArrowRight, ShieldCheck, X, Trash2, Edit 
+  FolderOpen, ArrowRight, ShieldCheck, X, Trash2, Edit, AlertTriangle 
 } from 'lucide-react';
 import type { Impresa, Cantiere, Sopralluogo } from '../types';
 import { supabase } from '../lib/supabaseClient';
@@ -28,7 +28,7 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
   const [isModalEditOpen, setIsModalEditOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Campi form (creazione / modifica)
+  // Campi form
   const [editId, setEditId] = useState('');
   const [ragioneSociale, setRagioneSociale] = useState('');
   const [pIva, setPIva] = useState('');
@@ -64,13 +64,16 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
     const nomePulito = ragioneSociale.trim();
     if (!nomePulito) return;
 
-    const esisteGia = imprese.some(
+    // CONTROLLO DUPLICATI: avvisa se l'impresa esiste già
+    const giaPresente = imprese.find(
       i => i.ragione_sociale.trim().toLowerCase() === nomePulito.toLowerCase()
     );
 
-    if (esisteGia) {
-      alert(`Un'impresa con ragione sociale "${nomePulito}" è già presente in archivio!`);
-      return;
+    if (giaPresente) {
+      const conferma = window.confirm(
+        `Attenzione!\nL'impresa "${nomePulito}" è già presente in archivio (P.IVA: ${giaPresente.p_iva || 'N.D.'}).\n\nSi tratta di una seconda impresa diversa che vuoi aggiungere comunque (differenziandola con P.IVA o sede)?`
+      );
+      if (!conferma) return;
     }
 
     setLoading(true);
@@ -124,7 +127,6 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
       setIsModalEditOpen(false);
       onRefresh();
 
-      // Aggiorna lo stato selezionato a video
       if (selectedImpresa?.id === editId) {
         setSelectedImpresa({
           ...selectedImpresa,
@@ -186,7 +188,6 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-amber-400 font-semibold uppercase">{imp.ruolo || 'Esecutrice'}</span>
                     
-                    {/* Tasto Modifica Rapida */}
                     <button
                       type="button"
                       title="Modifica impresa"
@@ -199,7 +200,6 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
                       <Edit className="w-3.5 h-3.5" />
                     </button>
 
-                    {/* Tasto Elimina */}
                     <button
                       type="button"
                       title="Elimina impresa"
@@ -223,7 +223,7 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
           })}
         </div>
 
-        {/* Scheda Dettaglio Impresa con Tasti Modifica ed Elimina */}
+        {/* Dettaglio Impresa */}
         <div className="lg:col-span-2">
           {selectedImpresa ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
@@ -310,7 +310,7 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
         </div>
       </div>
 
-      {/* Modale Creazione / Modifica Impresa */}
+      {/* Modale Creazione / Modifica */}
       {(isModalAddOpen || isModalEditOpen) && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-5 space-y-3">
