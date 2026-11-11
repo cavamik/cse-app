@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, ClipboardCheck, Plus, Trash2, Camera, AlertOctagon, 
   Building2, Users, Loader2, Search, CheckSquare, Square, Clock,
-  ArrowUp, ArrowDown, AlertTriangle, Check, Printer, Eye
+  ArrowUp, ArrowDown, AlertTriangle, Check, Eye
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { compressImage } from '../utils/imageCompressor';
@@ -43,7 +43,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
 
-  // Stato per l'anteprima PDF in tempo reale durante l'editing
+  // Anteprima PDF
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Presenze
@@ -88,7 +88,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [sospensione, setSospensione] = useState(false);
   const [motivoSospensione, setMotivoSospensione] = useState('');
 
-  // Popolamento iniziale
+  // Inizializzazione dati
   useEffect(() => {
     if (sopralluogoToEdit) {
       setCantiereId(sopralluogoToEdit.cantiere_id);
@@ -146,7 +146,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   }, [sopralluogoToEdit, initialCantiereId, cantieri, isOpen]);
 
-  // Caricamento imprese per prevenire duplicati
+  // Caricamento archivio completo imprese da DB
   const fetchTutteLeImprese = async () => {
     try {
       const { data, error } = await supabase
@@ -170,7 +170,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
   if (!isOpen) return null;
 
-  // Costruzione istantanea del verbale temporaneo per l'anteprima dal vivo
+  // Verbale dal vivo per anteprima
   const verbaleInAnteprima: Sopralluogo = {
     id: sopralluogoToEdit?.id || 'anteprima-live',
     cantiere_id: cantiereId,
@@ -198,7 +198,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     motivo_sospensione: sospensione ? motivoSospensione : undefined,
   };
 
-  // Funzioni di ordinamento Su/Giù
+  // Riordino Su / Giù
   const moveItem = <T,>(list: T[], index: number, direction: 'up' | 'down'): T[] => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= list.length) return list;
@@ -210,68 +210,43 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   };
 
   // 1. Fasi di Lavoro
-  const addFaseLavoro = () => {
-    setFasiLavoro(prev => [{ id: crypto.randomUUID(), descrizione: '', impresa: '' }, ...prev]);
-  };
+  const addFaseLavoro = () => setFasiLavoro(prev => [{ id: crypto.randomUUID(), descrizione: '', impresa: '' }, ...prev]);
   const removeFaseLavoro = (id: string) => setFasiLavoro(prev => prev.filter(f => f.id !== id));
-  const updateFaseLavoro = (id: string, field: 'descrizione' | 'impresa', value: string) => {
-    setFasiLavoro(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f));
-  };
-  const moveFaseLavoro = (index: number, direction: 'up' | 'down') => {
-    setFasiLavoro(prev => moveItem(prev, index, direction));
-  };
+  const updateFaseLavoro = (id: string, field: 'descrizione' | 'impresa', value: string) => setFasiLavoro(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f));
+  const moveFaseLavoro = (index: number, direction: 'up' | 'down') => setFasiLavoro(prev => moveItem(prev, index, direction));
 
   // 2. Rilievi
-  const addRilievo = () => {
-    setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }, ...prev]);
-  };
+  const addRilievo = () => setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }, ...prev]);
   const removeRilievo = (id: string) => setRilievi(prev => prev.filter(r => r.id !== id));
-  const updateRilievoTesto = (id: string, text: string) => {
-    setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
-  };
-  const moveRilievo = (index: number, direction: 'up' | 'down') => {
-    setRilievi(prev => moveItem(prev, index, direction));
-  };
+  const updateRilievoTesto = (id: string, text: string) => setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
+  const moveRilievo = (index: number, direction: 'up' | 'down') => setRilievi(prev => moveItem(prev, index, direction));
 
   // 3. Prescrizioni
-  const addPrescrizione = () => {
-    setPrescrizioni(prev => [{ id: crypto.randomUUID(), testo: '', impresa_destinataria: '', data_scadenza: '' }, ...prev]);
-  };
+  const addPrescrizione = () => setPrescrizioni(prev => [{ id: crypto.randomUUID(), testo: '', impresa_destinataria: '', data_scadenza: '' }, ...prev]);
   const removePrescrizione = (id: string) => setPrescrizioni(prev => prev.filter(p => p.id !== id));
-  const updatePrescrizione = (id: string, field: keyof PrescrizioneItem, val: string) => {
-    setPrescrizioni(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
-  };
-  const movePrescrizione = (index: number, direction: 'up' | 'down') => {
-    setPrescrizioni(prev => moveItem(prev, index, direction));
-  };
+  const updatePrescrizione = (id: string, field: keyof PrescrizioneItem, val: string) => setPrescrizioni(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
+  const movePrescrizione = (index: number, direction: 'up' | 'down') => setPrescrizioni(prev => moveItem(prev, index, direction));
 
-  // Dispositivi e apprestamenti
-  const toggleDispositivo = (index: number) => {
-    setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, selezionato: !item.selezionato } : item));
-  };
-  const updateNotaDispositivo = (index: number, nota: string) => {
-    setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, note: nota } : item));
-  };
-  const updateNomeDispositivo = (index: number, nome: string) => {
-    setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, nome: nome } : item));
-  };
-  const addAltroDispositivo = () => {
-    setDispositivi(prev => [
-      ...prev,
-      { id: crypto.randomUUID(), nome: 'ALTRO', selezionato: true, note: '' }
-    ]);
-  };
-  const removeDispositivoCustom = (index: number) => {
-    setDispositivi(prev => prev.filter((_, i) => i !== index));
-  };
+  // Dispositivi
+  const toggleDispositivo = (index: number) => setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, selezionato: !item.selezionato } : item));
+  const updateNotaDispositivo = (index: number, nota: string) => setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, note: nota } : item));
+  const updateNomeDispositivo = (index: number, nome: string) => setDispositivi(prev => prev.map((item, i) => i === index ? { ...item, nome: nome } : item));
+  const addAltroDispositivo = () => setDispositivi(prev => [...prev, { id: crypto.randomUUID(), nome: 'ALTRO', selezionato: true, note: '' }]);
+  const removeDispositivoCustom = (index: number) => setDispositivi(prev => prev.filter((_, i) => i !== index));
 
-  // Imprese
+  // Toggle selezione impresa
   const toggleImpresa = (nome: string) => {
     setImpreseSelezionate(prev => 
       prev.includes(nome) ? prev.filter(i => i !== nome) : [...prev, nome]
     );
   };
 
+  // Rimuovi esplicitamente un'impresa da quelle selezionate
+  const rimuoviImpresaSelezionata = (nome: string) => {
+    setImpreseSelezionate(prev => prev.filter(i => i !== nome));
+  };
+
+  // Creazione nuova impresa
   const handleVerificaECreaNuovaImpresa = async () => {
     const nome = nuovaImpresaNome.trim();
     if (!nome) return;
@@ -327,19 +302,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   };
 
-  // Upload foto
+  // Foto
   const handleFilesChange = (rilievoId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const files = Array.from(e.target.files);
     setFilesPerRilievo(prev => ({ ...prev, [rilievoId]: [...(prev[rilievoId] || []), ...files] }));
   };
   const handleRemoveExistingPhoto = (rilievoId: string, urlToRemove: string) => {
-    setRilievi(prev => prev.map(r => {
-      if (r.id === rilievoId) {
-        return { ...r, foto_urls: (r.foto_urls || []).filter(url => url !== urlToRemove) };
-      }
-      return r;
-    }));
+    setRilievi(prev => prev.map(r => r.id === rilievoId ? { ...r, foto_urls: (r.foto_urls || []).filter(url => url !== urlToRemove) } : r));
   };
   const handleRemoveStagedFile = (rilievoId: string, fileIndex: number) => {
     setFilesPerRilievo(prev => ({ ...prev, [rilievoId]: (prev[rilievoId] || []).filter((_, idx) => idx !== fileIndex) }));
@@ -428,7 +398,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     if (filtroRicercaImpresa.trim()) {
       return imp.ragione_sociale.toLowerCase().includes(filtroRicercaImpresa.toLowerCase());
     }
-    return !imp.cantiere_id || imp.cantiere_id === cantiereId || impreseSelezionate.includes(imp.ragione_sociale);
+    return !imp.cantiere_id || imp.cantiere_id === cantiereId;
   });
 
   return (
@@ -451,7 +421,6 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {/* PULSANTE ANTEPRIMA PDF IN TESTATA */}
               <button
                 type="button"
                 onClick={() => setIsPreviewOpen(true)}
@@ -638,8 +607,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 </div>
               </div>
 
-              {/* 5. Imprese Convenute */}
-              <div className="space-y-2 pt-1">
+              {/* 5. Imprese Convenute con Box di Controllo Visivo */}
+              <div className="space-y-3 pt-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-slate-300 text-xs">
                     5. Imprese Presenti Oggi ({impreseSelezionate.length} selezionate)
@@ -652,6 +621,33 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     <Plus className="w-3.5 h-3.5" /> + Aggiungi Impresa
                   </button>
                 </div>
+
+                {/* BOX VISIVO: Mostra ESATTAMENTE le imprese attualmente selezionate nel verbale, con la X per rimuoverle */}
+                {impreseSelezionate.length > 0 && (
+                  <div className="p-2.5 bg-slate-900/90 border border-amber-500/30 rounded-xl space-y-1.5 shadow-inner">
+                    <span className="text-[11px] text-amber-400 font-semibold block">
+                      Imprese inserite nel verbale (clicca la X per rimuoverne una):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {impreseSelezionate.map(nome => (
+                        <span 
+                          key={nome} 
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs shadow-sm"
+                        >
+                          <span>{nome}</span>
+                          <button
+                            type="button"
+                            title={`Rimuovi ${nome} dal verbale`}
+                            onClick={() => rimuoviImpresaSelezionata(nome)}
+                            className="w-4 h-4 rounded-full bg-slate-950/20 hover:bg-rose-700 text-white flex items-center justify-center cursor-pointer transition"
+                          >
+                            <X className="w-3 h-3 stroke-[3]" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {mostraAddImpresa && (
                   <div className="flex gap-2 p-2 bg-slate-900 border border-slate-800 rounded-lg">
@@ -677,7 +673,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
                     <input
                       type="text"
-                      placeholder="Cerca tra tutte le imprese registrate..."
+                      placeholder="Cerca tra le imprese dell'archivio..."
                       value={filtroRicercaImpresa}
                       onChange={(e) => setFiltroRicercaImpresa(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -685,6 +681,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   </div>
                 )}
 
+                {/* Bottoni di selezione rapida */}
                 <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pt-1">
                   {impreseDaMostrare.map(imp => {
                     const sel = impreseSelezionate.includes(imp.ragione_sociale);
@@ -705,7 +702,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             </div>
 
-            {/* FASI DI LAVORO (TESTO PIÙ GRANDE, FACILE DA LEGGERE) */}
+            {/* FASI DI LAVORO (TESTO GRANDE) */}
             <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <div>
@@ -748,7 +745,6 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                       <span className="text-slate-500 font-mono text-xs w-6 text-center ml-1">{idx + 1}.</span>
                     </div>
 
-                    {/* INPUT TESTO PIÙ GRANDE (text-sm/base) */}
                     <input
                       type="text"
                       required
@@ -863,7 +859,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             </div>
 
-            {/* ARGOMENTI DISCUSSI (AREA TESTO GRANDE E CONFORTEVOLE) */}
+            {/* ARGOMENTI DISCUSSI (AREA TESTO GRANDE) */}
             <div className="space-y-1.5">
               <label className="block font-semibold text-slate-200 text-xs sm:text-sm">
                 Nel Corso della Riunione Sono Stati Discussi i Seguenti Argomenti:
@@ -877,7 +873,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               />
             </div>
 
-            {/* RILIEVI VISIVI E FOTO (TESTO CHIARO E SPAZIOSO) */}
+            {/* RILIEVI VISIVI E FOTO */}
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <div>
@@ -928,7 +924,6 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     )}
                   </div>
 
-                  {/* AREA TESTO RILIEVO GRANDE (text-sm/base) */}
                   <textarea
                     rows={3}
                     required
@@ -1103,7 +1098,6 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
             {/* Footer con pulsante Anteprima PDF e Salvataggio */}
             <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky bottom-0 bg-slate-900 pb-1">
-              {/* PULSANTE ANTEPRIMA ANCHE IN BASSO */}
               <button
                 type="button"
                 onClick={() => setIsPreviewOpen(true)}
@@ -1189,7 +1183,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         </div>
       </div>
 
-      {/* MODALE ANTEPRIMA PDF INTEGRATO: APRIBILE ISTANTANEAMENTE SENZA USCIRE */}
+      {/* Anteprima PDF */}
       {isPreviewOpen && (
         <VerbalePdfModal
           isOpen={isPreviewOpen}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Users, Building2, Plus, Phone, UserCheck, 
-  FolderOpen, ArrowRight, ShieldCheck, X, Trash2, Edit, AlertTriangle 
+  FolderOpen, ArrowRight, ShieldCheck, X, Trash2, Edit 
 } from 'lucide-react';
 import type { Impresa, Cantiere, Sopralluogo } from '../types';
 import { supabase } from '../lib/supabaseClient';
@@ -64,14 +64,14 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
     const nomePulito = ragioneSociale.trim();
     if (!nomePulito) return;
 
-    // CONTROLLO DUPLICATI: avvisa se l'impresa esiste già
+    // Controllo duplicati
     const giaPresente = imprese.find(
       i => i.ragione_sociale.trim().toLowerCase() === nomePulito.toLowerCase()
     );
 
     if (giaPresente) {
       const conferma = window.confirm(
-        `Attenzione!\nL'impresa "${nomePulito}" è già presente in archivio (P.IVA: ${giaPresente.p_iva || 'N.D.'}).\n\nSi tratta di una seconda impresa diversa che vuoi aggiungere comunque (differenziandola con P.IVA o sede)?`
+        `Attenzione!\nL'impresa "${nomePulito}" è già presente in archivio (P.IVA: ${giaPresente.p_iva || 'N.D.'}).\n\nVuoi procedere creando comunque una seconda voce omonima distinta?`
       );
       if (!conferma) return;
     }
@@ -103,13 +103,18 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
     }
   };
 
+  // AGGIORNAMENTO IMPRESA CON AGGIORNAMENTO A CASCATA DEI VERBALI
   const handleAggiornaImpresa = async (e: React.FormEvent) => {
     e.preventDefault();
     const nomePulito = ragioneSociale.trim();
     if (!nomePulito || !editId) return;
 
+    const impresaCorrente = imprese.find(i => i.id === editId);
+    const vecchioNome = impresaCorrente?.ragione_sociale;
+
     setLoading(true);
     try {
+      // 1. Aggiorna la tabella imprese
       const { error } = await supabase
         .from('imprese')
         .update({
@@ -123,6 +128,27 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
         .eq('id', editId);
 
       if (error) throw error;
+
+      // 2. Se il nome dell'impresa è cambiato, aggiorna a cascata tutti i vecchi verbali
+      if (vecchioNome && vecchioNome !== nomePulito) {
+        const verbaliCoinvolti = sopralluoghi.filter(s =>
+          s.imprese_presenti?.includes(vecchioNome) ||
+          s.fasi_lavoro?.some(f => f.impresa === vecchioNome)
+        );
+
+        for (const verbale of verbaliCoinvolti) {
+          const nuoveImprese = (verbale.imprese_presenti || []).map(n => n === vecchioNome ? nomePulito : n);
+          const nuoveFasi = (verbale.fasi_lavoro || []).map(f => f.impresa === vecchioNome ? { ...f, impresa: nomePulito } : f);
+
+          await supabase
+            .from('sopralluoghi')
+            .update({
+              imprese_presenti: nuoveImprese,
+              fasi_lavoro: nuoveFasi,
+            })
+            .eq('id', verbale.id);
+        }
+      }
 
       setIsModalEditOpen(false);
       onRefresh();
@@ -252,7 +278,7 @@ export const ImpreseView: React.FC<ImpreseViewProps> = ({
                     }}
                     className="p-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                     <span>Elimina</span>
                   </button>
                 </div>
