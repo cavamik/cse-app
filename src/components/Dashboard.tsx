@@ -4,27 +4,53 @@ import {
   Plus, 
   MapPin, 
   UserCheck, 
-  ArrowRight,
-  FolderOpen
+  ArrowRight, 
+  FolderOpen,
+  CalendarClock
 } from 'lucide-react';
-import type { Cantiere, DashboardStats } from '../types';
+import type { Cantiere, DashboardStats, Sopralluogo } from '../types';
 
 interface DashboardProps {
   stats: DashboardStats;
   cantieri: Cantiere[];
+  sopralluoghi?: Sopralluogo[];
   onNewCantiere: () => void;
   onSelectCantiere: (cantiereId: string) => void;
-  onNavigateToSopralluoghi?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
   stats,
   cantieri,
+  sopralluoghi = [],
   onNewCantiere,
   onSelectCantiere,
 }) => {
-  // Filtra solo i cantieri in corso/attivi
-  const cantieriAttivi = cantieri.filter((c) => c.stato === 'in_corso');
+  // Trova la data/ora dell'ultimo sopralluogo per ciascun cantiere
+  const getLastSopralluogoInfo = (cantiereId: string) => {
+    const list = sopralluoghi.filter((s) => s.cantiere_id === cantiereId);
+    if (list.length === 0) return { timestamp: 0, label: 'Nessun sopralluogo' };
+
+    const latest = list.reduce((prev, curr) => {
+      const prevTime = new Date(`${prev.data}T${prev.ora || '00:00'}`).getTime();
+      const currTime = new Date(`${curr.data}T${curr.ora || '00:00'}`).getTime();
+      return currTime > prevTime ? curr : prev;
+    });
+
+    const timestamp = new Date(`${latest.data}T${latest.ora || '00:00'}`).getTime();
+    return { 
+      timestamp, 
+      label: `Ultimo controllo: ${latest.data}${latest.ora ? ` ore ${latest.ora}` : ''}` 
+    };
+  };
+
+  // Filtra e ordina i cantieri attivi: prima quelli con il sopralluogo più recente
+  const cantieriAttiviOrdinati = cantieri
+    .filter((c) => c.stato === 'in_corso')
+    .sort((a, b) => {
+      const timeA = getLastSopralluogoInfo(a.id).timestamp;
+      const timeB = getLastSopralluogoInfo(b.id).timestamp;
+      return timeB - timeA; // Decrescente (più recente in alto)
+    });
 
   return (
     <div className="space-y-6 pb-12">
@@ -35,11 +61,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <Building2 className="w-8 h-8 text-amber-500" />
             <span>Cantieri Attivi</span>
             <span className="text-sm font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              {cantieriAttivi.length} in corso
+              {cantieriAttiviOrdinati.length} in lavorazione
             </span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Supervisione operativa e coordinamento sicurezza ai sensi del D.Lgs. 81/08
+            Ordinati automaticamente per data dell'ultimo sopralluogo effettuato
           </p>
         </div>
 
@@ -54,12 +80,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* Elenco Cantieri Attivi */}
-      {cantieriAttivi.length === 0 ? (
+      {cantieriAttiviOrdinati.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
           <Building2 className="w-12 h-12 text-slate-600 mx-auto" />
           <h3 className="text-base font-semibold text-slate-200">Nessun cantiere attivo al momento</h3>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Crea un nuovo cantiere con lo stato "In Corso" per gestirne i verbali e i sopralluoghi.
+            Crea un nuovo cantiere con lo stato "In Corso" per iniziare a registrare i sopralluoghi.
           </p>
           <button
             type="button"
@@ -71,46 +97,56 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {cantieriAttivi.map((cantiere) => (
-            <div
-              key={cantiere.id}
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition flex flex-col justify-between space-y-4 shadow-sm"
-            >
-              <div className="space-y-2">
-                <div className="flex justify-between items-start gap-2">
-                  <h3 className="text-base font-bold text-white hover:text-amber-400 transition">
-                    {cantiere.nome}
-                  </h3>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5" />
-                    In Corso
-                  </span>
-                </div>
+          {cantieriAttiviOrdinati.map((cantiere) => {
+            const lastInspection = getLastSopralluogoInfo(cantiere.id);
 
-                <div className="space-y-1 text-xs text-slate-400">
-                  <p className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                    <span className="truncate">{cantiere.indirizzo || 'Indirizzo non specificato'}</span>
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    <UserCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                    <span>Committente: <strong className="text-slate-300 font-medium">{cantiere.committente || 'N.D.'}</strong></span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Pulsante Apri Cartella Sopralluoghi */}
-              <button
-                type="button"
-                onClick={() => onSelectCantiere(cantiere.id)}
-                className="w-full inline-flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-amber-500 text-slate-200 hover:text-slate-950 text-xs font-bold transition border border-slate-800 hover:border-amber-500 cursor-pointer group"
+            return (
+              <div
+                key={cantiere.id}
+                className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition flex flex-col justify-between space-y-4 shadow-sm"
               >
-                <FolderOpen className="w-4 h-4 text-amber-400 group-hover:text-slate-950" />
-                <span>Apri Cartella Sopralluoghi</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-start gap-2">
+                    <h3 className="text-base font-bold text-white hover:text-amber-400 transition">
+                      {cantiere.nome}
+                    </h3>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5" />
+                      In Corso
+                    </span>
+                  </div>
+
+                  {/* Badge data ultimo sopralluogo */}
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-400/90 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                    <CalendarClock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{lastInspection.label}</span>
+                  </div>
+
+                  <div className="space-y-1 text-xs text-slate-400 pt-1">
+                    <p className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span className="truncate">{cantiere.indirizzo || 'Indirizzo non specificato'}</span>
+                    </p>
+                    <p className="flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span>Committente: <strong className="text-slate-300 font-medium">{cantiere.committente || 'N.D.'}</strong></span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Pulsante Apri Cartella Sopralluoghi */}
+                <button
+                  type="button"
+                  onClick={() => onSelectCantiere(cantiere.id)}
+                  className="w-full inline-flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-amber-500 text-slate-200 hover:text-slate-950 text-xs font-bold transition border border-slate-800 hover:border-amber-500 cursor-pointer group"
+                >
+                  <FolderOpen className="w-4 h-4 text-amber-400 group-hover:text-slate-950" />
+                  <span>Apri Cartella Sopralluoghi</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

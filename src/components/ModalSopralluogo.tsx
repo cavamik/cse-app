@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, ClipboardCheck, Plus, Trash2, Camera, AlertOctagon, 
-  Building2, Users, Loader2, Search, CheckSquare, Square, Clock
+  Building2, Users, Loader2, Search, CheckSquare, Square, Clock,
+  ArrowUp, ArrowDown
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { compressImage } from '../utils/imageCompressor';
@@ -41,7 +42,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
 
-  // 1. Presenze gerarchiche
+  // 1. Presenze
   const [presenze, setPresenze] = useState<PresenzeConvenuti>({
     committente: { presente: false, nome: '' },
     dl: { presente: false, nome: '' },
@@ -59,8 +60,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     DISPOSITIVI_PREDEFINITI.map(d => ({ nome: d, selezionato: false, note: '' }))
   );
 
-  // 4. Imprese (FILTRATE RIGOROSAMENTE PER QUESTO CANTIERE)
-  const [impreseDelCantiere, setImpreseDelCantiere] = useState<Impresa[]>([]);
+  // 4. Imprese
+  const [impreseDisponibili, setImpreseDisponibili] = useState<Impresa[]>([]);
   const [impreseSelezionate, setImpreseSelezionate] = useState<string[]>([]);
   const [filtroRicercaImpresa, setFiltroRicercaImpresa] = useState('');
   const [nuovaImpresaNome, setNuovaImpresaNome] = useState('');
@@ -77,7 +78,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [sospensione, setSospensione] = useState(false);
   const [motivoSospensione, setMotivoSospensione] = useState('');
 
-  // Sincronizzazione cantiere e precompilazione dai dati dell'archivio cantiere
+  // Popolamento iniziale o per modifica
   useEffect(() => {
     if (sopralluogoToEdit) {
       setCantiereId(sopralluogoToEdit.cantiere_id);
@@ -135,32 +136,51 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   }, [sopralluogoToEdit, initialCantiereId, cantieri, isOpen]);
 
-  // Carica SOLO le imprese assegnate a QUESTO cantiere
+  // Caricamento completo delle imprese: mostra quelle del cantiere + quelle generali + quelle già presenti
   useEffect(() => {
-    const fetchImpreseCantiere = async () => {
-      if (!cantiereId) {
-        setImpreseDelCantiere([]);
-        return;
-      }
-      const { data } = await supabase
-        .from('imprese')
-        .select('*')
-        .eq('cantiere_id', cantiereId)
-        .order('ragione_sociale');
+    const fetchImprese = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('imprese')
+          .select('*')
+          .order('ragione_sociale');
 
-      if (data) setImpreseDelCantiere(data);
+        if (!error && data) {
+          // Filtra: imprese assegnate a questo cantiere OPPURE senza cantiere (generali)
+          // OPPURE già selezionate nello storico del verbale
+          const filtrate = data.filter((imp: Impresa) => 
+            !imp.cantiere_id || 
+            imp.cantiere_id === cantiereId || 
+            impreseSelezionate.includes(imp.ragione_sociale)
+          );
+          setImpreseDisponibili(filtrate);
+        }
+      } catch (err) {
+        console.error('Errore caricamento imprese:', err);
+      }
     };
 
-    if (isOpen && cantiereId) {
-      fetchImpreseCantiere();
+    if (isOpen) {
+      fetchImprese();
     }
-  }, [isOpen, cantiereId]);
+  }, [isOpen, cantiereId, impreseSelezionate]);
 
   if (!isOpen) return null;
 
-  // Gestione Fasi Lavoro
+  // FUNZIONI DI ORDINAMENTO (SPOSTA SU / GIÙ)
+  const moveItem = <T,>(list: T[], index: number, direction: 'up' | 'down'): T[] => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= list.length) return list;
+    const copy = [...list];
+    const temp = copy[index];
+    copy[index] = copy[targetIndex];
+    copy[targetIndex] = temp;
+    return copy;
+  };
+
+  // 1. Fasi di Lavoro: AGGIUNGI IN CIMA + SPOSTA SU/GIÙ
   const addFaseLavoro = () => {
-    setFasiLavoro(prev => [...prev, { id: crypto.randomUUID(), descrizione: '', impresa: '' }]);
+    setFasiLavoro(prev => [{ id: crypto.randomUUID(), descrizione: '', impresa: '' }, ...prev]);
   };
 
   const removeFaseLavoro = (id: string) => {
@@ -169,6 +189,44 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
   const updateFaseLavoro = (id: string, field: 'descrizione' | 'impresa', value: string) => {
     setFasiLavoro(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f));
+  };
+
+  const moveFaseLavoro = (index: number, direction: 'up' | 'down') => {
+    setFasiLavoro(prev => moveItem(prev, index, direction));
+  };
+
+  // 2. Rilievi: AGGIUNGI IN CIMA + SPOSTA SU/GIÙ
+  const addRilievo = () => {
+    setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }, ...prev]);
+  };
+
+  const removeRilievo = (id: string) => {
+    setRilievi(prev => prev.filter(r => r.id !== id));
+  };
+
+  const updateRilievoTesto = (id: string, text: string) => {
+    setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
+  };
+
+  const moveRilievo = (index: number, direction: 'up' | 'down') => {
+    setRilievi(prev => moveItem(prev, index, direction));
+  };
+
+  // 3. Prescrizioni: AGGIUNGI IN CIMA + SPOSTA SU/GIÙ
+  const addPrescrizione = () => {
+    setPrescrizioni(prev => [{ id: crypto.randomUUID(), testo: '', impresa_destinataria: '', data_scadenza: '' }, ...prev]);
+  };
+
+  const removePrescrizione = (id: string) => {
+    setPrescrizioni(prev => prev.filter(p => p.id !== id));
+  };
+
+  const updatePrescrizione = (id: string, field: keyof PrescrizioneItem, val: string) => {
+    setPrescrizioni(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
+  };
+
+  const movePrescrizione = (index: number, direction: 'up' | 'down') => {
+    setPrescrizioni(prev => moveItem(prev, index, direction));
   };
 
   // Dispositivi e apprestamenti
@@ -185,7 +243,10 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   };
 
   const addAltroDispositivo = () => {
-    setDispositivi(prev => [...prev, { id: crypto.randomUUID(), nome: 'ALTRO', selezionato: true, note: '' }]);
+    setDispositivi(prev => [
+      ...prev,
+      { id: crypto.randomUUID(), nome: 'ALTRO', selezionato: true, note: '' }
+    ]);
   };
 
   const removeDispositivoCustom = (index: number) => {
@@ -203,12 +264,12 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     const nome = nuovaImpresaNome.trim();
     if (!nome || !cantiereId) return;
 
-    const giaPresente = impreseDelCantiere.find(
+    const giaPresente = impreseDisponibili.find(
       i => i.ragione_sociale.toLowerCase() === nome.toLowerCase()
     );
 
     if (giaPresente) {
-      alert(`L'impresa "${giaPresente.ragione_sociale}" è già associata a questo cantiere!`);
+      alert(`L'impresa "${giaPresente.ragione_sociale}" è già disponibile!`);
       if (!impreseSelezionate.includes(giaPresente.ragione_sociale)) {
         setImpreseSelezionate(prev => [...prev, giaPresente.ragione_sociale]);
       }
@@ -224,26 +285,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }]).select().single();
 
     if (!error && data) {
-      setImpreseDelCantiere(prev => [...prev, data]);
+      setImpreseDisponibili(prev => [...prev, data]);
       setImpreseSelezionate(prev => [...prev, nome]);
       setNuovaImpresaNome('');
       setMostraAddImpresa(false);
     }
   };
 
-  // Rilievi e foto
-  const addRilievo = () => {
-    setRilievi(prev => [...prev, { id: crypto.randomUUID(), descrizione: '', foto_urls: [] }]);
-  };
-
-  const removeRilievo = (id: string) => {
-    setRilievi(prev => prev.filter(r => r.id !== id));
-  };
-
-  const updateRilievoTesto = (id: string, text: string) => {
-    setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
-  };
-
+  // Upload e gestione file foto
   const handleFilesChange = (rilievoId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const files = Array.from(e.target.files);
@@ -264,18 +313,6 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       ...prev,
       [rilievoId]: (prev[rilievoId] || []).filter((_, idx) => idx !== fileIndex)
     }));
-  };
-
-  const addPrescrizione = () => {
-    setPrescrizioni(prev => [...prev, { id: crypto.randomUUID(), testo: '', impresa_destinataria: '', data_scadenza: '' }]);
-  };
-
-  const removePrescrizione = (id: string) => {
-    setPrescrizioni(prev => prev.filter(p => p.id !== id));
-  };
-
-  const updatePrescrizione = (id: string, field: keyof PrescrizioneItem, val: string) => {
-    setPrescrizioni(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -357,7 +394,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   };
 
-  const impreseFiltrate = impreseDelCantiere.filter(i => 
+  const impreseFiltrate = impreseDisponibili.filter(i => 
     i.ragione_sociale.toLowerCase().includes(filtroRicercaImpresa.toLowerCase())
   );
 
@@ -438,14 +475,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             </div>
           </div>
 
-          {/* SOGGETTI CONVENUTI (Committente -> DL -> Progettista -> CSE -> Imprese del cantiere) */}
+          {/* SOGGETTI CONVENUTI */}
           <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 space-y-3">
             <div>
               <label className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-amber-500" />
                 Soggetti Convenuti e Presenti alla Riunione
               </label>
-              <span className="text-[11px] text-slate-500">Spunta chi è presente oggi al sopralluogo (i nominativi arrivano dal cantiere)</span>
+              <span className="text-[11px] text-slate-500">Spunta i presenti (i nominativi arrivano dall'archivio del cantiere)</span>
             </div>
 
             <div className="space-y-2 border-b border-slate-800 pb-3">
@@ -553,18 +590,18 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             </div>
 
-            {/* 5. Imprese Assegnate a questo Cantiere */}
+            {/* 5. Imprese Convenute (Nessuna esclusa) */}
             <div className="space-y-2 pt-1">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-slate-300">
-                  5. Imprese del Cantiere Presenti Oggi ({impreseSelezionate.length})
+                  5. Imprese Presenti Oggi ({impreseSelezionate.length} selezionate)
                 </span>
                 <button
                   type="button"
                   onClick={() => setMostraAddImpresa(!mostraAddImpresa)}
                   className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> + Aggiungi Impresa al Cantiere
+                  <Plus className="w-3.5 h-3.5" /> + Aggiungi Impresa
                 </button>
               </div>
 
@@ -582,17 +619,17 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     onClick={handleCreaNuovaImpresa}
                     className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded cursor-pointer"
                   >
-                    Associa a questo Cantiere
+                    Salva e Associa
                   </button>
                 </div>
               )}
 
-              {impreseDelCantiere.length > 5 && (
+              {impreseDisponibili.length > 4 && (
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
                   <input
                     type="text"
-                    placeholder="Filtra imprese..."
+                    placeholder="Cerca tra tutte le imprese..."
                     value={filtroRicercaImpresa}
                     onChange={(e) => setFiltroRicercaImpresa(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-white focus:outline-none focus:border-amber-500"
@@ -616,29 +653,23 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     </button>
                   );
                 })}
-
-                {impreseDelCantiere.length === 0 && (
-                  <p className="text-slate-500 italic p-1">
-                    Nessuna impresa ancora associata a questo cantiere. Clicca "+ Aggiungi Impresa al Cantiere".
-                  </p>
-                )}
               </div>
             </div>
           </div>
 
-          {/* FASI DI LAVORO (CON IMPRESA DEL CANTIERE SELEZIONABILE) */}
+          {/* FASI DI LAVORO (AGGIUNGI IN CIMA + SPOSTA SU/GIÙ) */}
           <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 space-y-3">
             <div className="flex justify-between items-center">
               <div>
                 <label className="font-bold uppercase tracking-wider text-slate-300 block">
                   Fasi di Lavoro in Svolgimento alla Data Odierna
                 </label>
-                <span className="text-[11px] text-slate-500">Specifica le lavorazioni e assegna l'impresa tra quelle di questo cantiere</span>
+                <span className="text-[11px] text-slate-500">I nuovi inserimenti compaiono in cima. Usa le frecce per riordinare.</span>
               </div>
               <button
                 type="button"
                 onClick={addFaseLavoro}
-                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer"
+                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20"
               >
                 <Plus className="w-3.5 h-3.5" /> + Aggiungi Lavorazione
               </button>
@@ -647,7 +678,30 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             <div className="space-y-2">
               {fasiLavoro.map((fase, idx) => (
                 <div key={fase.id} className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg flex flex-col sm:flex-row gap-2 items-center">
-                  <span className="text-slate-500 font-mono text-[11px] w-6 shrink-0">{idx + 1}.</span>
+                  
+                  {/* Frecce Riordina Su / Giù */}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      title="Sposta su"
+                      disabled={idx === 0}
+                      onClick={() => moveFaseLavoro(idx, 'up')}
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Sposta giù"
+                      disabled={idx === fasiLavoro.length - 1}
+                      onClick={() => moveFaseLavoro(idx, 'down')}
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-slate-500 font-mono text-[11px] w-5 text-center ml-1">{idx + 1}.</span>
+                  </div>
+
                   <input
                     type="text"
                     required
@@ -657,14 +711,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     className="flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-white focus:border-amber-500 focus:outline-none w-full"
                   />
                   
-                  {/* Dropdown: SOLO le imprese di questo cantiere! */}
+                  {/* Dropdown Impresa */}
                   <select
                     value={fase.impresa || ''}
                     onChange={(e) => updateFaseLavoro(fase.id, 'impresa', e.target.value)}
                     className="w-full sm:w-56 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-amber-500 focus:outline-none"
                   >
-                    <option value="">-- Impresa di questo Cantiere --</option>
-                    {impreseDelCantiere.map(imp => (
+                    <option value="">-- Seleziona Impresa --</option>
+                    {impreseDisponibili.map(imp => (
                       <option key={imp.id} value={imp.ragione_sociale}>
                         {imp.ragione_sociale}
                       </option>
@@ -777,26 +831,52 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             />
           </div>
 
-          {/* Rilievi visivi e foto */}
+          {/* RILIEVI VISIVI E FOTO (AGGIUNGI IN CIMA + SPOSTA SU/GIÙ) */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5 text-amber-500" />
-                Rilievi Visivi & Foto di Cantiere
-              </label>
+              <div>
+                <label className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-amber-500" />
+                  Rilievi Visivi & Foto di Cantiere
+                </label>
+                <span className="text-[11px] text-slate-500">I nuovi rilievi compaiono in cima. Usa le frecce per riordinarli.</span>
+              </div>
               <button
                 type="button"
                 onClick={addRilievo}
-                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer"
+                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20"
               >
-                <Plus className="w-3.5 h-3.5" /> + Altro Rilievo con Foto
+                <Plus className="w-3.5 h-3.5" /> + Aggiungi Rilievo
               </button>
             </div>
 
             {rilievi.map((ril, index) => (
               <div key={ril.id} className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2.5">
                 <div className="flex justify-between items-center">
-                  <span className="font-semibold text-slate-400">Rilievo #{index + 1}</span>
+                  
+                  {/* Frecce Riordino Rilievi */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Sposta su"
+                      disabled={index === 0}
+                      onClick={() => moveRilievo(index, 'up')}
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Sposta giù"
+                      disabled={index === rilievi.length - 1}
+                      onClick={() => moveRilievo(index, 'down')}
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="font-semibold text-slate-400 ml-1">Rilievo #{index + 1}</span>
+                  </div>
+
                   {rilievi.length > 1 && (
                     <button type="button" onClick={() => removeRilievo(ril.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer">
                       <Trash2 className="w-4 h-4" />
@@ -864,17 +944,20 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             ))}
           </div>
 
-          {/* Prescrizioni */}
+          {/* PRESCRIZIONI (AGGIUNGI IN CIMA + SPOSTA SU/GIÙ) */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5 text-amber-500" />
-                Misure Prescrittive & Adeguamenti Richiesti
-              </label>
+              <div>
+                <label className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-amber-500" />
+                  Misure Prescrittive & Adeguamenti Richiesti
+                </label>
+                <span className="text-[11px] text-slate-500">Le nuove prescrizioni compaiono in cima. Usa le frecce per riordinarle.</span>
+              </div>
               <button
                 type="button"
                 onClick={addPrescrizione}
-                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer"
+                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20"
               >
                 <Plus className="w-3.5 h-3.5" /> + Aggiungi Prescrizione
               </button>
@@ -883,11 +966,35 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             {prescrizioni.map((p, idx) => (
               <div key={p.id} className="p-3 bg-slate-950/70 border border-amber-500/20 rounded-xl space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="font-semibold text-amber-400">Prescrizione #{idx + 1}</span>
+                  
+                  {/* Frecce Riordino Prescrizioni */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Sposta su"
+                      disabled={idx === 0}
+                      onClick={() => movePrescrizione(idx, 'up')}
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Sposta giù"
+                      disabled={idx === prescrizioni.length - 1}
+                      onClick={() => movePrescrizione(idx, 'down')}
+                      className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="font-semibold text-amber-400 ml-1">Prescrizione #{idx + 1}</span>
+                  </div>
+
                   <button type="button" onClick={() => removePrescrizione(p.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
+
                 <input
                   type="text"
                   required
@@ -896,6 +1003,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   onChange={(e) => updatePrescrizione(p.id, 'testo', e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-white"
                 />
+
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
@@ -961,7 +1069,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Salvataggio...</span>
                 </>
               ) : (
@@ -975,3 +1083,5 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     </div>
   );
 };
+
+export default ModalSopralluogo;
