@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, ClipboardCheck, Plus, Trash2, Camera, AlertOctagon, 
-  Building2, Users, Loader2, Search, CheckSquare, Square, Clock,
+  Building2, Users, Loader2, CheckSquare, Square, Clock,
   ArrowUp, ArrowDown, AlertTriangle, Check, Eye
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
@@ -9,7 +9,8 @@ import { compressImage } from '../utils/imageCompressor';
 import { VerbalePdfModal } from './VerbalePdfModal';
 import type { 
   Cantiere, Impresa, RilievoItem, PrescrizioneItem, 
-  DispositivoApprestamento, Sopralluogo, FaseLavoro, PresenzeConvenuti 
+  DispositivoApprestamento, Sopralluogo, FaseLavoro, PresenzeConvenuti,
+  ImpresaPresenteItem, RuoloCantiere, TipoSoggetto
 } from '../types';
 
 interface ModalSopralluogoProps {
@@ -43,10 +44,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
 
-  // Anteprima PDF dal vivo
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  // Presenze gerarchiche
   const [presenze, setPresenze] = useState<PresenzeConvenuti>({
     committente: { presente: false, nome: '' },
     dl: { presente: false, nome: '' },
@@ -54,47 +53,44 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     cse: { presente: true, nome: 'arch. Cavalleri Michele' }
   });
 
-  // Fasi di lavoro
   const [fasiLavoro, setFasiLavoro] = useState<FaseLavoro[]>([
     { id: crypto.randomUUID(), descrizione: '', impresa: '' }
   ]);
 
-  // Dispositivi e apprestamenti
   const [dispositivi, setDispositivi] = useState<DispositivoApprestamento[]>(
     DISPOSITIVI_PREDEFINITI.map(d => ({ nome: d, selezionato: false, note: '' }))
   );
 
   // Database Imprese
   const [tutteLeImpreseDB, setTutteLeImpreseDB] = useState<Impresa[]>([]);
-  const [impreseSelezionate, setImpreseSelezionate] = useState<string[]>([]);
+  
+  // Imprese presenti nel verbale: ogni riga contiene Nome, Ruolo nel cantiere (Appalto / Subappalto) e Tipologia
+  const [impresePresentiLista, setImpresePresentiLista] = useState<ImpresaPresenteItem[]>([]);
+  
   const [nuovaImpresaNome, setNuovaImpresaNome] = useState('');
+  const [nuovoTipo, setNuovoTipo] = useState<TipoSoggetto>('impresa');
   const [mostraAddImpresa, setMostraAddImpresa] = useState(false);
 
-  // Conflitto duplicato
   const [conflittoImpresa, setConflittoImpresa] = useState<{
     nomeDigitato: string;
     impresaEsistente: Impresa;
   } | null>(null);
 
-  // Rilievi e foto
   const [rilievi, setRilievi] = useState<RilievoItem[]>([
     { id: crypto.randomUUID(), descrizione: '', foto_urls: [] }
   ]);
   const [filesPerRilievo, setFilesPerRilievo] = useState<Record<string, File[]>>({});
 
-  // Prescrizioni e sospensione
   const [prescrizioni, setPrescrizioni] = useState<PrescrizioneItem[]>([]);
   const [sospensione, setSospensione] = useState(false);
   const [motivoSospensione, setMotivoSospensione] = useState('');
 
-  // Inizializzazione dati
   useEffect(() => {
     if (sopralluogoToEdit) {
       setCantiereId(sopralluogoToEdit.cantiere_id);
       setDataSopralluogo(sopralluogoToEdit.data);
       setOraSopralluogo(sopralluogoToEdit.ora || '09:00');
       setArgomentiDiscussi(sopralluogoToEdit.argomenti_discussi || '');
-      setImpreseSelezionate(sopralluogoToEdit.imprese_presenti || []);
       setRilievi(sopralluogoToEdit.rilievi?.length ? sopralluogoToEdit.rilievi : [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }]);
       setPrescrizioni(sopralluogoToEdit.prescrizioni_lista || []);
       setSospensione(sopralluogoToEdit.sospensione_lavori || false);
@@ -109,6 +105,23 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         progettista: sopralluogoToEdit.presenze?.progettista || { presente: false, nome: cRef?.progettista || '' },
         cse: sopralluogoToEdit.presenze?.cse || { presente: true, nome: cRef?.cse || 'arch. Cavalleri Michele' }
       });
+
+      // Caricamento presenze imprese con ruoli Appalto/Subappalto
+      if (sopralluogoToEdit.imprese_dettaglio && sopralluogoToEdit.imprese_dettaglio.length > 0) {
+        setImpresePresentiLista(sopralluogoToEdit.imprese_dettaglio);
+      } else if (sopralluogoToEdit.imprese_presenti && sopralluogoToEdit.imprese_presenti.length > 0) {
+        const parsed: ImpresaPresenteItem[] = sopralluogoToEdit.imprese_presenti.map(str => {
+          const isSub = str.toLowerCase().includes('subappalto');
+          const cleanName = str.replace(/\s*\((Appalto|Subappalto|Subappaltatrice|Affidataria|Esecutrice)[^)]*\)/i, '').trim();
+          return {
+            nome: cleanName,
+            ruolo_cantiere: isSub ? 'subappalto' : 'appalto',
+          };
+        });
+        setImpresePresentiLista(parsed);
+      } else {
+        setImpresePresentiLista([]);
+      }
 
       if (sopralluogoToEdit.fasi_lavoro && sopralluogoToEdit.fasi_lavoro.length > 0) {
         setFasiLavoro(sopralluogoToEdit.fasi_lavoro);
@@ -135,7 +148,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       setOraSopralluogo('09:00');
       setFasiLavoro([{ id: crypto.randomUUID(), descrizione: '', impresa: '' }]);
       setArgomentiDiscussi('');
-      setImpreseSelezionate([]);
+      setImpresePresentiLista([]);
       setRilievi([{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }]);
       setFilesPerRilievo({});
       setPrescrizioni([]);
@@ -169,7 +182,13 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
   if (!isOpen) return null;
 
-  // Verbale dal vivo per l'anteprima
+  // Genera stringhe formattate per la stampa: "Nome Impresa (Appalto)"
+  const arrayStringheImpresePresenti = impresePresentiLista.map(item => {
+    const labelRuolo = item.ruolo_cantiere === 'subappalto' ? 'Subappalto' : 'Appalto';
+    return `${item.nome} (${labelRuolo})`;
+  });
+
+  // Verbale dal vivo per anteprima
   const verbaleInAnteprima: Sopralluogo = {
     id: sopralluogoToEdit?.id || 'anteprima-live',
     cantiere_id: cantiereId,
@@ -180,7 +199,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       .map(f => `${f.descrizione}${f.impresa ? ` (${f.impresa})` : ''}`)
       .join('; '),
     fasi_lavoro: fasiLavoro,
-    imprese_presenti: impreseSelezionate,
+    imprese_presenti: arrayStringheImpresePresenti,
+    imprese_dettaglio: impresePresentiLista,
     presenze: presenze,
     dispositivi_apprestamenti: dispositivi,
     argomenti_discussi: argomentiDiscussi,
@@ -197,7 +217,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     motivo_sospensione: sospensione ? motivoSospensione : undefined,
   };
 
-  // Funzione generica per spostare elementi Su o Giù
+  // Funzione per spostare elementi Su o Giù
   const moveItem = <T,>(list: T[], index: number, direction: 'up' | 'down'): T[] => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= list.length) return list;
@@ -208,50 +228,64 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     return copy;
   };
 
-  // 1. Fasi di Lavoro (Aggiunta in cima + Riordino)
+  // 1. Fasi di Lavoro
   const addFaseLavoro = () => setFasiLavoro(prev => [{ id: crypto.randomUUID(), descrizione: '', impresa: '' }, ...prev]);
   const removeFaseLavoro = (id: string) => setFasiLavoro(prev => prev.filter(f => f.id !== id));
   const updateFaseLavoro = (id: string, field: 'descrizione' | 'impresa', value: string) => setFasiLavoro(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f));
   const moveFaseLavoro = (index: number, direction: 'up' | 'down') => setFasiLavoro(prev => moveItem(prev, index, direction));
 
-  // 2. Rilievi (Aggiunta in cima + Riordino)
+  // 2. Rilievi
   const addRilievo = () => setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }, ...prev]);
   const removeRilievo = (id: string) => setRilievi(prev => prev.filter(r => r.id !== id));
   const updateRilievoTesto = (id: string, text: string) => setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
   const moveRilievo = (index: number, direction: 'up' | 'down') => setRilievi(prev => moveItem(prev, index, direction));
 
-  // 3. Prescrizioni (Aggiunta in cima + Riordino)
+  // 3. Prescrizioni
   const addPrescrizione = () => setPrescrizioni(prev => [{ id: crypto.randomUUID(), testo: '', impresa_destinataria: '', data_scadenza: '' }, ...prev]);
   const removePrescrizione = (id: string) => setPrescrizioni(prev => prev.filter(p => p.id !== id));
   const updatePrescrizione = (id: string, field: keyof PrescrizioneItem, val: string) => setPrescrizioni(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
   const movePrescrizione = (index: number, direction: 'up' | 'down') => setPrescrizioni(prev => moveItem(prev, index, direction));
 
-  // 4. GESTIONE E RIORDINO IMPRESE PRESENTI (Spuntate / Spostabili con freccette)
-  const aggiungiImpresaPresente = (nome: string) => {
-    if (!impreseSelezionate.includes(nome)) {
-      setImpreseSelezionate(prev => [...prev, nome]);
+  // 4. GESTIONE IMPRESE: NOME + RUOLO NEL CANTIERE (APPALTO / SUBAPPALTO) + RIORDINO
+  const aggiungiImpresaPresente = (nome: string, ruoloIniziale: RuoloCantiere = 'appalto') => {
+    if (!impresePresentiLista.some(i => i.nome === nome)) {
+      const impRef = tutteLeImpreseDB.find(i => i.ragione_sociale === nome);
+      setImpresePresentiLista(prev => [
+        ...prev, 
+        { 
+          nome, 
+          ruolo_cantiere: ruoloIniziale,
+          tipo: impRef?.tipo || (impRef?.ruolo === 'lavoratore_autonomo' ? 'lavoratore_autonomo' : 'impresa')
+        }
+      ]);
     }
   };
 
   const rimuoviImpresaPresente = (nome: string) => {
-    setImpreseSelezionate(prev => prev.filter(n => n !== nome));
+    setImpresePresentiLista(prev => prev.filter(i => i.nome !== nome));
+  };
+
+  const updateRuoloCantiere = (nome: string, nuovoRuolo: RuoloCantiere) => {
+    setImpresePresentiLista(prev => prev.map(i => 
+      i.nome === nome ? { ...i, ruolo_cantiere: nuovoRuolo } : i
+    ));
   };
 
   const moveImpresaPresente = (index: number, direction: 'up' | 'down') => {
-    setImpreseSelezionate(prev => moveItem(prev, index, direction));
+    setImpresePresentiLista(prev => moveItem(prev, index, direction));
   };
 
-  // Imprese associate a questo cantiere ma non ancora spuntate tra i presenti
+  const nomiSelezionati = impresePresentiLista.map(i => i.nome);
+
   const altreImpreseDelCantiere = tutteLeImpreseDB.filter(
-    imp => imp.cantiere_id === cantiereId && !impreseSelezionate.includes(imp.ragione_sociale)
+    imp => imp.cantiere_id === cantiereId && !nomiSelezionati.includes(imp.ragione_sociale)
   );
 
-  // Altre imprese dell'archivio generale (non di questo cantiere e non ancora spuntate)
   const altreImpreseArchivioGenerale = tutteLeImpreseDB.filter(
-    imp => imp.cantiere_id !== cantiereId && !impreseSelezionate.includes(imp.ragione_sociale)
+    imp => imp.cantiere_id !== cantiereId && !nomiSelezionati.includes(imp.ragione_sociale)
   );
 
-  // Creazione nuova impresa con controllo duplicati
+  // Creazione nuova impresa
   const handleVerificaECreaNuovaImpresa = async () => {
     const nome = nuovaImpresaNome.trim();
     if (!nome) return;
@@ -268,13 +302,13 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       return;
     }
 
-    await procediCreazioneImpresa(nome);
+    await procediCreazioneImpresa(nome, nuovoTipo);
   };
 
   const handleUsaEsistente = () => {
     if (!conflittoImpresa) return;
     const nomeEsistente = conflittoImpresa.impresaEsistente.ragione_sociale;
-    aggiungiImpresaPresente(nomeEsistente);
+    aggiungiImpresaPresente(nomeEsistente, 'appalto');
     setNuovaImpresaNome('');
     setMostraAddImpresa(false);
     setConflittoImpresa(null);
@@ -284,19 +318,19 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     if (!conflittoImpresa) return;
     const nome = conflittoImpresa.nomeDigitato;
     setConflittoImpresa(null);
-    await procediCreazioneImpresa(nome);
+    await procediCreazioneImpresa(nome, nuovoTipo);
   };
 
-  const procediCreazioneImpresa = async (nome: string) => {
+  const procediCreazioneImpresa = async (nome: string, tipoSogg: TipoSoggetto) => {
     const { data, error } = await supabase.from('imprese').insert([{
       ragione_sociale: nome,
+      tipo: tipoSogg,
       cantiere_id: cantiereId || null,
-      ruolo: 'esecutrice'
     }]).select().single();
 
     if (!error && data) {
       setTutteLeImpreseDB(prev => [...prev, data]);
-      aggiungiImpresaPresente(nome);
+      aggiungiImpresaPresente(nome, 'appalto');
       setNuovaImpresaNome('');
       setMostraAddImpresa(false);
     } else if (error) {
@@ -321,7 +355,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     setDispositivi(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Gestione foto
+  // Upload foto
   const handleFilesChange = (rilievoId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const files = Array.from(e.target.files);
@@ -391,7 +425,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         ora: oraSopralluogo,
         lavorazioni_in_corso: lavorazioniSintetiche,
         fasi_lavoro: fasiLavoro,
-        imprese_presenti: impreseSelezionate,
+        imprese_presenti: arrayStringheImpresePresenti,
+        imprese_dettaglio: impresePresentiLista,
         presenze: presenze,
         dispositivi_apprestamenti: dispositivi,
         argomenti_discussi: argomentiDiscussi,
@@ -516,7 +551,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   <Users className="w-4 h-4 text-amber-500" />
                   Soggetti Convenuti e Presenti alla Riunione
                 </label>
-                <span className="text-xs text-slate-500">Spunta le figure presenti e ordina la lista delle imprese con le freccette</span>
+                <span className="text-xs text-slate-500">Spunta le figure presenti e specifica per ciascuna impresa se opera in Appalto o Subappalto</span>
               </div>
 
               {/* Figure Principali (Committente, DL, Progettista, CSE) */}
@@ -625,31 +660,31 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 </div>
               </div>
 
-              {/* 5. GESTIONE IMPRESE: CROCETTA + FRECCE DI ORDINAMENTO (ZERO RIDONDANZA) */}
+              {/* 5. GESTIONE IMPRESE: CROCETTA + SCELTA APPALTO / SUBAPPALTO + RIORDINO */}
               <div className="space-y-3 pt-1">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <span className="font-bold text-slate-200 text-xs uppercase tracking-wider">
-                    5. Imprese Presenti Oggi ({impreseSelezionate.length})
+                    5. Imprese ed Esecutori Presenti Oggi ({impresePresentiLista.length})
                   </span>
                   <span className="text-[11px] text-slate-400">
-                    Usa le frecce <strong className="text-amber-400">↑ ↓</strong> per stabilire l'ordine nel verbale
+                    Scegli <strong className="text-amber-400">Appalto</strong> o <strong className="text-amber-400">Subappalto</strong> per ciascuna e ordina con le frecce
                   </span>
                 </div>
 
-                {/* LISTA DELLE IMPRESE PRESENTI (ORDINABILE E MODIFICABILE) */}
-                {impreseSelezionate.length === 0 ? (
-                  <div className="p-3 bg-slate-900/40 border border-dashed border-slate-800 rounded-xl text-center text-xs text-slate-500">
+                {/* ELENCO DELLE IMPRESE PRESENTI */}
+                {impresePresentiLista.length === 0 ? (
+                  <div className="p-3.5 bg-slate-900/40 border border-dashed border-slate-800 rounded-xl text-center text-xs text-slate-500">
                     Nessuna impresa ancora inclusa tra i presenti. Spunta una delle imprese sotto o aggiungine una.
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {impreseSelezionate.map((nome, idx) => (
+                  <div className="space-y-2">
+                    {impresePresentiLista.map((item, idx) => (
                       <div 
-                        key={nome}
-                        className="p-2 bg-slate-900 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 shadow-sm hover:border-amber-500 transition"
+                        key={item.nome}
+                        className="p-2.5 bg-slate-900 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm hover:border-amber-500 transition"
                       >
-                        <div className="flex items-center gap-2.5">
-                          {/* Frecce Su/Giù per riordinare l'elenco dei presenti */}
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                          {/* Frecce Su/Giù */}
                           <div className="flex items-center gap-0.5 shrink-0">
                             <button
                               type="button"
@@ -663,34 +698,52 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                             <button
                               type="button"
                               title="Sposta giù"
-                              disabled={idx === impreseSelezionate.length - 1}
+                              disabled={idx === impresePresentiLista.length - 1}
                               onClick={() => moveImpresaPresente(idx, 'down')}
                               className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
                             >
                               <ArrowDown className="w-3.5 h-3.5" />
                             </button>
-                            <span className="text-slate-500 font-mono text-xs w-5 text-center ml-1">{idx + 1}.</span>
+                            <span className="text-slate-500 font-mono text-xs w-5 text-center ml-0.5">{idx + 1}.</span>
                           </div>
 
-                          {/* Crocetta Spuntata (Cliccandola si deseleziona) */}
+                          {/* Crocetta Spuntata + Nome + Badge Giuridico */}
                           <div 
-                            onClick={() => rimuoviImpresaPresente(nome)}
-                            className="flex items-center gap-2 cursor-pointer select-none text-slate-100 hover:text-amber-300 font-semibold text-xs sm:text-sm"
+                            onClick={() => rimuoviImpresaPresente(item.nome)}
+                            className="flex items-center gap-2 cursor-pointer select-none text-slate-100 hover:text-amber-300 font-semibold text-xs sm:text-sm min-w-0 truncate"
                           >
                             <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
-                            <span>{nome}</span>
+                            <span className="truncate">{item.nome}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold shrink-0 ${
+                              item.tipo === 'lavoratore_autonomo'
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                            }`}>
+                              {item.tipo === 'lavoratore_autonomo' ? 'L.A.' : 'Impresa'}
+                            </span>
                           </div>
                         </div>
 
-                        {/* Rimuovi */}
-                        <button
-                          type="button"
-                          title="Rimuovi dal verbale"
-                          onClick={() => rimuoviImpresaPresente(nome)}
-                          className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {/* SELETTORE RUOLO NEL CANTIERE (APPALTO / SUBAPPALTO) */}
+                        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                          <select
+                            value={item.ruolo_cantiere}
+                            onChange={(e) => updateRuoloCantiere(item.nome, e.target.value as RuoloCantiere)}
+                            className="bg-slate-950 border border-slate-700 text-amber-400 font-bold text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
+                          >
+                            <option value="appalto">Appalto</option>
+                            <option value="subappalto">Subappalto</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            title="Rimuovi dal verbale"
+                            onClick={() => rimuoviImpresaPresente(item.nome)}
+                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -700,19 +753,21 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 {altreImpreseDelCantiere.length > 0 && (
                   <div className="pt-2">
                     <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
-                      Altre imprese registrate in questo cantiere (clicca la crocetta per includerle):
+                      Altre imprese registrate in questo cantiere (clicca la casella per includerle):
                     </span>
                     <div className="space-y-1">
                       {altreImpreseDelCantiere.map(imp => (
                         <div
                           key={imp.id}
-                          onClick={() => aggiungiImpresaPresente(imp.ragione_sociale)}
+                          onClick={() => aggiungiImpresaPresente(imp.ragione_sociale, 'appalto')}
                           className="p-2 bg-slate-900/60 border border-slate-800/80 rounded-lg flex items-center justify-between text-xs text-slate-300 hover:text-white hover:bg-slate-800/50 cursor-pointer transition select-none"
                         >
                           <div className="flex items-center gap-2">
                             <Square className="w-4 h-4 text-slate-500" />
                             <span>{imp.ragione_sociale}</span>
-                            {imp.ruolo && <span className="text-[10px] text-slate-500 uppercase">({imp.ruolo})</span>}
+                            <span className="text-[10px] text-slate-500 uppercase">
+                              ({imp.tipo === 'lavoratore_autonomo' ? 'L.A.' : 'Impresa'})
+                            </span>
                           </div>
                           <span className="text-[11px] text-amber-400/80 font-medium">+ Includi</span>
                         </div>
@@ -721,14 +776,13 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   </div>
                 )}
 
-                {/* AGGIUNGI DA ARCHIVIO GENERALE O NUOVA */}
+                {/* AGGIUNGI DA ARCHIVIO O CREA NUOVA */}
                 <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  {/* Selettore rapido da archivio */}
                   <select
                     value=""
                     onChange={(e) => {
                       if (e.target.value) {
-                        aggiungiImpresaPresente(e.target.value);
+                        aggiungiImpresaPresente(e.target.value, 'appalto');
                       }
                     }}
                     className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none cursor-pointer"
@@ -736,7 +790,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     <option value="">+ Aggiungi da Archivio Generale...</option>
                     {altreImpreseArchivioGenerale.map(imp => (
                       <option key={imp.id} value={imp.ragione_sociale}>
-                        {imp.ragione_sociale} {imp.p_iva ? `(${imp.p_iva})` : ''}
+                        {imp.ragione_sociale} {imp.tipo === 'lavoratore_autonomo' ? '(Lav. Autonomo)' : ''}
                       </option>
                     ))}
                   </select>
@@ -747,33 +801,44 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-slate-950 font-bold rounded-lg border border-amber-500/30 transition cursor-pointer text-xs flex items-center justify-center gap-1 shrink-0"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Nuova Impresa</span>
+                    <span>Nuovo Soggetto</span>
                   </button>
                 </div>
 
-                {/* Form nuova impresa */}
+                {/* Form nuovo soggetto */}
                 {mostraAddImpresa && (
-                  <div className="flex gap-2 p-2.5 bg-slate-900 border border-amber-500/30 rounded-xl mt-1">
-                    <input
-                      type="text"
-                      placeholder="Ragione sociale nuova impresa..."
-                      value={nuovaImpresaNome}
-                      onChange={(e) => setNuovaImpresaNome(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleVerificaECreaNuovaImpresa}
-                      className="px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg cursor-pointer text-xs"
-                    >
-                      Salva e Includi
-                    </button>
+                  <div className="p-3 bg-slate-900 border border-amber-500/30 rounded-xl space-y-2 mt-1">
+                    <span className="text-slate-300 font-bold text-xs block">Inserisci nuovo soggetto:</span>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        placeholder="Ragione Sociale o Nominativo..."
+                        value={nuovaImpresaNome}
+                        onChange={(e) => setNuovaImpresaNome(e.target.value)}
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                      />
+                      <select
+                        value={nuovoTipo}
+                        onChange={(e) => setNuovoTipo(e.target.value as TipoSoggetto)}
+                        className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white"
+                      >
+                        <option value="impresa">Impresa</option>
+                        <option value="lavoratore_autonomo">Lavoratore Autonomo</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleVerificaECreaNuovaImpresa}
+                        className="px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg cursor-pointer text-xs shrink-0"
+                      >
+                        Salva e Includi
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* FASI DI LAVORO (TESTO GRANDE) */}
+            {/* FASI DI LAVORO */}
             <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <div>
@@ -830,7 +895,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                       onChange={(e) => updateFaseLavoro(fase.id, 'impresa', e.target.value)}
                       className="w-full sm:w-60 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-amber-500 focus:outline-none"
                     >
-                      <option value="">-- Seleziona Impresa --</option>
+                      <option value="">-- Seleziona Soggetto --</option>
                       {tutteLeImpreseDB.map(imp => (
                         <option key={imp.id} value={imp.ragione_sociale}>
                           {imp.ragione_sociale}
@@ -1207,18 +1272,18 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               <div className="bg-slate-900 border border-amber-500/50 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
                 <div className="flex items-center gap-2.5 text-amber-400 border-b border-slate-800 pb-3">
                   <AlertTriangle className="w-5 h-5 shrink-0" />
-                  <h3 className="font-bold text-sm text-white">Impresa già presente in archivio!</h3>
+                  <h3 className="font-bold text-sm text-white">Soggetto già presente in archivio!</h3>
                 </div>
 
                 <p className="text-slate-300 text-xs leading-relaxed">
-                  L'impresa <strong className="text-amber-400">"{conflittoImpresa.nomeDigitato}"</strong> è già stata registrata in precedenza.
+                  Il soggetto <strong className="text-amber-400">"{conflittoImpresa.nomeDigitato}"</strong> è già stato registrato in precedenza.
                 </p>
 
                 <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1 text-xs">
                   <span className="text-slate-500 text-[10px] uppercase font-bold block">Scheda Registrata:</span>
                   <p className="text-white font-semibold">{conflittoImpresa.impresaEsistente.ragione_sociale}</p>
+                  <p className="text-slate-400">Tipo: {conflittoImpresa.impresaEsistente.tipo === 'lavoratore_autonomo' ? 'Lavoratore Autonomo' : 'Impresa'}</p>
                   <p className="text-slate-400">P.IVA: {conflittoImpresa.impresaEsistente.p_iva || 'Non indicata'}</p>
-                  <p className="text-slate-400">Referente: {conflittoImpresa.impresaEsistente.referente || 'Non indicato'}</p>
                 </div>
 
                 <div className="space-y-2 pt-1">
@@ -1228,7 +1293,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-md"
                   >
                     <Check className="w-4 h-4 stroke-[3]" />
-                    <span>Usa questa impresa esistente (Consigliato)</span>
+                    <span>Usa questo soggetto esistente (Consigliato)</span>
                   </button>
 
                   <button
@@ -1236,7 +1301,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     onClick={handleCreaOmonimaComunque}
                     className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer border border-slate-700"
                   >
-                    <span>Crea comunque (Ditta diversa con stesso nome)</span>
+                    <span>Crea comunque (Soggetto diverso con stesso nome)</span>
                   </button>
 
                   <button

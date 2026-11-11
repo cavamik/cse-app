@@ -18,11 +18,9 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 }) => {
   const [loadingAssets, setLoadingAssets] = useState(false);
 
-  // Asset dello Studio sincronizzati con Supabase Cloud
   const [logoStudio, setLogoStudio] = useState<string | null>(null);
   const [timbroFirma, setTimbroFirma] = useState<string | null>(null);
 
-  // Margini e dimensioni
   const [marginTopMm, setMarginTopMm] = useState<number>(10);
   const [marginBottomMm, setMarginBottomMm] = useState<number>(15);
   const [marginLateralMm, setMarginLateralMm] = useState<number>(10);
@@ -30,7 +28,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
   const [timbroHeightCm, setTimbroHeightCm] = useState<number>(4.0);
   const [timbroMarginMm, setTimbroMarginMm] = useState<number>(-8);
 
-  // Caricamento sicuro da Supabase all'apertura del modale
   useEffect(() => {
     const fetchStudioSettings = async () => {
       try {
@@ -71,7 +68,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     window.print();
   };
 
-  // Caricamento Logo su Supabase Cloud (Storage + DB)
   const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -81,7 +77,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       const ext = file.name.split('.').pop() || 'svg';
       const path = `studio/logo_studio_${Date.now()}.${ext}`;
 
-      // 1. Upload nel bucket Supabase
       const { error: upErr } = await supabase.storage
         .from('foto-sopralluoghi')
         .upload(path, file, {
@@ -91,11 +86,9 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 
       if (upErr) throw upErr;
 
-      // 2. Ottieni URL pubblico permanente
       const { data: pData } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
       const url = pData.publicUrl;
 
-      // 3. Salva nella tabella impostazioni_studio
       const { error: dbErr } = await supabase
         .from('impostazioni_studio')
         .upsert({ id: 'principale', logo_url: url, updated_at: new Date().toISOString() });
@@ -103,9 +96,9 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       if (dbErr) throw dbErr;
 
       setLogoStudio(url);
-      alert('Logo salvato su Supabase Cloud con successo! Sarà visibile su tutti i dispositivi.');
+      alert('Logo salvato su Supabase Cloud con successo!');
     } catch (err: any) {
-      alert('Errore caricamento logo su Supabase: ' + err.message);
+      alert('Errore caricamento logo: ' + err.message);
     } finally {
       setLoadingAssets(false);
     }
@@ -118,7 +111,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       .upsert({ id: 'principale', logo_url: null, updated_at: new Date().toISOString() });
   };
 
-  // Caricamento Timbro PNG su Supabase Cloud
   const handleUploadTimbro = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -148,7 +140,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       setTimbroFirma(url);
       alert('Timbro salvato su Supabase Cloud con successo!');
     } catch (err: any) {
-      alert('Errore caricamento timbro su Supabase: ' + err.message);
+      alert('Errore caricamento timbro: ' + err.message);
     } finally {
       setLoadingAssets(false);
     }
@@ -196,7 +188,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     updateSettingInDb('foto_height_cm', val);
   };
 
-  // Risoluzione presenze
   const pres = sopralluogo.presenze;
   const committentePres = pres?.committente?.presente;
   const committenteNome = pres?.committente?.nome || cantiere?.committente;
@@ -279,12 +270,11 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 
       <div className="fixed inset-0 bg-slate-950/90 z-50 flex flex-col items-center overflow-y-auto print-modal-wrapper">
         
-        {/* BARRA SUPERIORE CONTROLLI */}
+        {/* BARRA DEGLI STRUMENTI */}
         <header className="sticky top-0 left-0 right-0 z-50 w-full bg-slate-900 border-b border-slate-800 shadow-xl px-4 py-2.5 print-hidden backdrop-blur-md">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             
             <div className="flex flex-wrap items-center gap-2">
-              {/* Carica Logo */}
               <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                 {loadingAssets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <Upload className="w-3.5 h-3.5 text-amber-400" />}
                 <span>{logoStudio ? 'Sostituisci Logo Cloud' : 'Carica Logo Cloud (SVG)'}</span>
@@ -307,7 +297,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 </button>
               )}
 
-              {/* Carica Timbro PNG */}
               <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                 <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
                 <span>{timbroFirma ? 'Cambia Timbro PNG' : 'Carica Timbro PNG'}</span>
@@ -320,7 +309,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 />
               </label>
 
-              {/* Controlli Margini */}
+              {/* Margini */}
               <div className="flex items-center gap-2 bg-slate-950 px-2.5 py-1.5 rounded-lg border border-slate-800 text-slate-300">
                 <span className="font-bold text-amber-400">Margini:</span>
                 <label className="flex items-center gap-1">
@@ -446,7 +435,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             }}
           >
             
-            {/* 1. LOGO A TUTTA LARGHEZZA SENZA MARGINE SUPERIORE */}
+            {/* 1. LOGO A TUTTA LARGHEZZA */}
             {logoStudio && (
               <div className="w-full mb-5 avoid-break text-center mt-0 pt-0">
                 <img 
@@ -490,7 +479,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               Al fine di promuovere il coordinamento, nonché di assicurare l'applicazione delle disposizioni contenute nel piano di sicurezza e coordinamento e delle relative procedure di lavoro sono convenute le seguenti persone:
             </p>
 
-            {/* 5. SOGGETTI CONVENUTI */}
+            {/* 5. SOGGETTI CONVENUTI (Committente -> DL -> Progettista -> CSE -> Imprese in 2 colonne) */}
             <div className="space-y-1 text-[9.5pt] mb-5 pl-3 border-l-2 border-neutral-400 avoid-break">
               {committentePres && (
                 <p><strong>Committente:</strong> {committenteNome}</p>
@@ -506,13 +495,14 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 
               <p><strong>CSE:</strong> {cseNome}</p>
 
+              {/* Elenco Imprese ed Esecutori con specifica Appalto / Subappalto in 2 COLONNE */}
               <div className="pt-1">
                 <span className="font-bold block text-neutral-800 mb-0.5">Imprese ed Esecutori presenti:</span>
                 {sopralluogo.imprese_presenti && sopralluogo.imprese_presenti.length > 0 ? (
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-1">
-                    {sopralluogo.imprese_presenti.map((imp, idx) => (
+                    {sopralluogo.imprese_presenti.map((impString, idx) => (
                       <div key={idx} className="truncate">
-                        &bull; {imp}
+                        &bull; {impString}
                       </div>
                     ))}
                   </div>
@@ -534,7 +524,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                       <span>&bull; {fasiAttive[0].descrizione}</span>
                       {fasiAttive[0].impresa && (
                         <span className="text-neutral-600 font-semibold ml-2">
-                          — Impresa: {fasiAttive[0].impresa}
+                          — {fasiAttive[0].impresa}
                         </span>
                       )}
                     </div>
@@ -545,7 +535,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                       <span>&bull; {f.descrizione}</span>
                       {f.impresa && (
                         <span className="text-neutral-600 font-semibold ml-2">
-                          — Impresa: {f.impresa}
+                          — {f.impresa}
                         </span>
                       )}
                     </div>

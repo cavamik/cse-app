@@ -4,6 +4,9 @@ export const NavTab = {} as unknown as NavTab;
 export type StatoCantiere = 'in_corso' | 'sospeso' | 'completato' | 'programmato';
 export const StatoCantiere = {} as unknown as StatoCantiere;
 
+export type TipoSoggetto = 'impresa' | 'lavoratore_autonomo';
+export type RuoloCantiere = 'appalto' | 'subappalto';
+
 export interface Cantiere {
   id: string;
   nome: string;
@@ -23,12 +26,19 @@ export interface Impresa {
   id: string;
   cantiere_id?: string;
   ragione_sociale: string;
+  tipo?: TipoSoggetto; // 'impresa' | 'lavoratore_autonomo'
   p_iva?: string;
   referente?: string;
   telefono?: string;
   ruolo?: string;
 }
 export const Impresa = {} as unknown as Impresa;
+
+export interface ImpresaPresenteItem {
+  nome: string;
+  ruolo_cantiere: RuoloCantiere; // 'appalto' | 'subappalto'
+  tipo?: TipoSoggetto; // 'impresa' | 'lavoratore_autonomo'
+}
 
 export interface RilievoItem {
   id: string;
@@ -72,6 +82,7 @@ export interface Sopralluogo {
   lavorazioni_in_corso?: string;
   fasi_lavoro?: FaseLavoro[];
   imprese_presenti: string[];
+  imprese_dettaglio?: ImpresaPresenteItem[];
   presenze?: PresenzeConvenuti;
   dispositivi_apprestamenti?: DispositivoApprestamento[];
   argomenti_discussi?: string;
