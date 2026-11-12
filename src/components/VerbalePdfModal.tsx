@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Printer, Upload, Image as ImageIcon, Sliders, MoveVertical, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import type { Sopralluogo, Cantiere } from '../types';
@@ -21,6 +22,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
   const [logoStudio, setLogoStudio] = useState<string | null>(null);
   const [timbroFirma, setTimbroFirma] = useState<string | null>(null);
 
+  // Margini A4 in mm (Default: Top 10mm, Bottom 15mm, Laterali 10mm)
   const [marginTopMm, setMarginTopMm] = useState<number>(10);
   const [marginBottomMm, setMarginBottomMm] = useState<number>(15);
   const [marginLateralMm, setMarginLateralMm] = useState<number>(10);
@@ -207,8 +209,11 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     ? sopralluogo.argomenti_discussi.split('\n').filter(p => p.trim())
     : [];
 
-  return (
-    <>
+  // UTILIZZO DI REACT PORTAL: il modale viene renderizzato direttamente in document.body
+  // permettendo a @media print di nascondere #root al 100% (zero schermate web nel PDF!)
+  return createPortal(
+    <div id="print-portal-root">
+      {/* REGOLE DI STAMPA A4: ISOLAMENTO ASSOLUTO DALL'APPLICAZIONE */}
       <style>{`
         @page {
           size: A4 portrait;
@@ -216,11 +221,27 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
         }
 
         @media print {
+          /* 1. NASCONDE TOTALMENTE TUTTA L'APPLICAZIONE REACT (zero schermate web residue!) */
+          #root {
+            display: none !important;
+          }
+
+          /* 2. Mostra esclusivamente il portale del verbale */
+          #print-portal-root {
+            display: block !important;
+            position: static !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: #111 !important;
+            overflow: visible !important;
+          }
+
           header, nav, main, footer, .print-hidden {
             display: none !important;
           }
 
-          html, body, #root {
+          html, body {
             background: white !important;
             color: #111 !important;
             height: auto !important;
@@ -268,16 +289,18 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
         }
       `}</style>
 
+      {/* ANTEPRIMA A MONITOR A SCHERMO INTERO */}
       <div className="fixed inset-0 bg-slate-950/90 z-50 flex flex-col items-center overflow-y-auto print-modal-wrapper">
         
-        {/* BARRA DEGLI STRUMENTI */}
+        {/* BARRA DEGLI STRUMENTI (Nascosta in stampa) */}
         <header className="sticky top-0 left-0 right-0 z-50 w-full bg-slate-900 border-b border-slate-800 shadow-xl px-4 py-2.5 print-hidden backdrop-blur-md">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             
             <div className="flex flex-wrap items-center gap-2">
+              {/* Carica Logo */}
               <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                 {loadingAssets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <Upload className="w-3.5 h-3.5 text-amber-400" />}
-                <span>{logoStudio ? 'Sostituisci Logo Cloud' : 'Carica Logo Cloud (SVG)'}</span>
+                <span>{logoStudio ? 'Sostituisci Logo Cloud' : 'Carica Logo (SVG)'}</span>
                 <input 
                   type="file" 
                   accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" 
@@ -297,6 +320,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 </button>
               )}
 
+              {/* Carica Timbro PNG */}
               <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                 <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
                 <span>{timbroFirma ? 'Cambia Timbro PNG' : 'Carica Timbro PNG'}</span>
@@ -399,12 +423,13 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             </div>
 
+            {/* Pulsante Stampa / Salva in PDF */}
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handlePrint}
                 className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center gap-1.5 shadow-lg transition cursor-pointer"
-                title="Stampa o Salva in formato PDF"
+                title="Apre l'anteprima ufficiale di stampa con pagine A4 separate e salva in PDF"
               >
                 <Printer className="w-4 h-4" />
                 <span>Stampa / Salva in PDF</span>
@@ -422,11 +447,11 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
           </div>
         </header>
 
-        {/* FOGLIO A4 CON MARGINI DINAMICI */}
-        <div className="w-full flex-1 flex justify-center py-6 px-4">
+        {/* FOGLIO A4 CON MARGINI CORRISPONDENTI */}
+        <div className="w-full flex-1 flex flex-col items-center py-6 px-4">
           <div 
             id="foglio-verbale-stampa"
-            className="print-sheet-a4 bg-white text-neutral-900 w-[210mm] min-h-[297mm] shadow-2xl rounded-sm text-[10pt] leading-relaxed font-sans"
+            className="print-sheet-a4 bg-white text-neutral-900 w-[210mm] min-h-[297mm] shadow-2xl rounded-sm text-[10pt] leading-relaxed font-sans relative"
             style={{
               paddingTop: `${marginTopMm}mm`,
               paddingBottom: `${marginBottomMm}mm`,
@@ -435,7 +460,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             }}
           >
             
-            {/* 1. LOGO A TUTTA LARGHEZZA */}
+            {/* 1. LOGO A TUTTA LARGHEZZA A FILO DEL MARGINE SUPERIORE */}
             {logoStudio && (
               <div className="w-full mb-5 avoid-break text-center mt-0 pt-0">
                 <img 
@@ -495,7 +520,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 
               <p><strong>CSE:</strong> {cseNome}</p>
 
-              {/* Elenco Imprese ed Esecutori con specifica Appalto / Subappalto in 2 COLONNE */}
               <div className="pt-1">
                 <span className="font-bold block text-neutral-800 mb-0.5">Imprese ed Esecutori presenti:</span>
                 {sopralluogo.imprese_presenti && sopralluogo.imprese_presenti.length > 0 ? (
@@ -512,7 +536,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             </div>
 
-            {/* 6. FASI DI LAVORO */}
+            {/* 6. FASI DI LAVORO (TITOLO VINCOLATO ALLA PRIMA LAVORAZIONE) */}
             <div className="mb-5">
               {fasiAttive.length > 0 ? (
                 <>
@@ -602,7 +626,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               )}
             </div>
 
-            {/* 8. ARGOMENTI DISCUTI */}
+            {/* 8. ARGOMENTI DISCUTI (FLUIDI) */}
             {paragrafiArgomenti.length > 0 && (
               <div className="mb-5">
                 <div className="avoid-break mb-1">
@@ -670,7 +694,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 11. RILIEVI FOTOGRAFICI */}
+            {/* 11. RILIEVI FOTOGRAFICI (ANTI-ORFANO) */}
             {sopralluogo.rilievi && sopralluogo.rilievi.length > 0 && (
               <div className="mb-6">
                 <div className="avoid-break mb-3">
@@ -719,7 +743,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 12. FIRMA DEL CSE */}
+            {/* 12. FIRMA DEL CSE (CHIUSURA DEFINITIVA DEL VERBALE) */}
             <div className="pt-6 mt-8 border-t border-neutral-300 flex justify-end avoid-break">
               <div className="text-center min-w-[260px]">
                 <p className="font-bold text-[9.5pt] text-neutral-900 leading-none">
@@ -748,7 +772,8 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
         </div>
 
       </div>
-    </>
+    </div>,
+    document.body
   );
 };
 
