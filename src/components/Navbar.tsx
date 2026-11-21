@@ -7,7 +7,9 @@ import {
   Menu, 
   X,
   Wifi,
-  WifiOff
+  WifiOff,
+  RefreshCw,
+  CloudUpload
 } from 'lucide-react';
 import type { NavTab } from '../types';
 
@@ -15,12 +17,20 @@ interface NavbarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   isConnected: boolean;
+  isOnline?: boolean;
+  pendingCount?: number;
+  isSyncing?: boolean;
+  onSync?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ 
   activeTab, 
   onSelectTab, 
-  isConnected 
+  isConnected,
+  isOnline = true,
+  pendingCount = 0,
+  isSyncing = false,
+  onSync
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -81,29 +91,57 @@ export const Navbar: React.FC<NavbarProps> = ({
             })}
           </nav>
 
-          {/* Stato connessione Supabase */}
-          <div className="flex items-center space-x-4">
+          {/* Stato connessione & Sincronizzazione Offline-First */}
+          <div className="flex items-center space-x-2.5">
+            {/* Badge verbali in attesa e pulsante Sync */}
+            {pendingCount > 0 && (
+              <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                <CloudUpload className="w-3.5 h-3.5 text-amber-400" />
+                <span>{pendingCount} da sincronizzare</span>
+                {isOnline && onSync && (
+                  <button
+                    type="button"
+                    onClick={onSync}
+                    disabled={isSyncing}
+                    className="ml-1 p-0.5 hover:bg-amber-500/20 rounded cursor-pointer transition disabled:opacity-50"
+                    title="Sincronizza ora con Supabase"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-amber-300' : 'text-amber-400'}`} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Badge Stato Connessione Rete/Cloud */}
             <div 
               className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                isConnected 
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                  : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                !isOnline
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : isConnected 
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                    : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
               }`}
             >
-              {isConnected ? (
+              {!isOnline ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-amber-400" />
+                  <WifiOff className="w-3.5 h-3.5 ml-1 hidden sm:inline" />
+                  <span className="hidden sm:inline">Offline (Cantiere)</span>
+                </>
+              ) : isConnected ? (
                 <>
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                   <Wifi className="w-3.5 h-3.5 ml-1 hidden sm:inline" />
-                  <span className="hidden sm:inline">Supabase Online</span>
+                  <span className="hidden sm:inline">Online (Cloud)</span>
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full bg-rose-500" />
                   <WifiOff className="w-3.5 h-3.5 ml-1 hidden sm:inline" />
-                  <span className="hidden sm:inline">Offline</span>
+                  <span className="hidden sm:inline">Cloud non raggiungibile</span>
                 </>
               )}
             </div>

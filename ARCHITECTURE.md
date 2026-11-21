@@ -40,7 +40,8 @@ src/
 │                                 # timbro/firma e regolazione dinamica margini in millimetri
 │
 ├── lib/
-│   └── supabaseClient.ts         # Inizializzazione del client Supabase con variabili d'ambiente
+│   ├── supabaseClient.ts         # Inizializzazione del client Supabase con variabili d'ambiente
+│   └── offlineStore.ts           # Motore Offline-First: cache IndexedDB (idb-keyval), coda verbali pendenti e sincronizzazione atomica
 │
 ├── types/
 │   └── index.ts                  # Interfacce TypeScript del dominio applicativo
@@ -132,3 +133,27 @@ Le immagini dei rilievi vengono compresse lato client (`utils/imageCompressor.ts
 VITE_SUPABASE_URL=https://<your-project>.supabase.co
 VITE_SUPABASE_ANON_KEY=<your-anon-key>
 ```
+
+---
+
+## 6. Architettura Offline-First & Sincronizzazione (`src/lib/offlineStore.ts`)
+
+Per garantire continuità operativa in cantiere in assenza di segnale mobile o Wi-Fi:
+
+1. **Cache di Lettura Istantanea (IndexedDB):**
+   * Tabelle `cantieri`, `imprese`, `sopralluoghi` e `impostazioni_studio` vengono salvate localmente ad ogni connessione online.
+   * All'avvio, l'app legge subito da IndexedDB per garantire apertura immediata e compilazione verbali anche senza connessione.
+
+2. **Coda `pending_sopralluoghi`:**
+   * In caso di salvataggio offline o caduta improvvisa della linea durante l'upload, il verbale e i relativi `Blob` fotografici già compressi vengono archiviati nella coda `pending_sopralluoghi` in IndexedDB (`status: 'pending'`).
+   * I verbali offline vengono mostrati nell'elenco con badge *"In attesa di sync"* e sono consultabili/stampabili subito in PDF tramite blob URL locali.
+
+3. **Motore di Sincronizzazione Atomica:**
+   * Ascolto automatico dell'evento `window.addEventListener('online')` + pulsante manuale *"Sincronizza ora"* nella Navbar e nella vista Sopralluoghi.
+   * Lock anti-duplicazione per evitare sync concorrenti sovrapposte.
+   * Flusso atomico per ciascun record:
+     1. Impostazione `status = 'syncing'`.
+     2. Upload preliminare di tutte le foto su Supabase Storage (`foto-sopralluoghi`). Se una foto fallisce, l'operazione abortisce e il record resta protetto in IndexedDB (`status: 'error'`).
+     3. Solo se tutte le foto sono caricate con successo, esecuzione dell'upsert del record su `sopralluoghi`.
+     4. A conferma avvenuta del database, rimozione dell'elemento dalla coda IndexedDB e aggiornamento automatico della UI.
+

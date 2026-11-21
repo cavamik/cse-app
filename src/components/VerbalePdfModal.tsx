@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer, Upload, Image as ImageIcon, Sliders, MoveVertical, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { getCachedData, setCachedData, OFFLINE_KEYS, type ImpostazioniStudioCache } from '../lib/offlineStore';
 import type { Sopralluogo, Cantiere } from '../types';
 
 interface VerbalePdfModalProps {
@@ -31,31 +32,42 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
   const [timbroMarginMm, setTimbroMarginMm] = useState<number>(-8);
 
   useEffect(() => {
+    const applySettings = (data: ImpostazioniStudioCache) => {
+      if (data.logo_url) setLogoStudio(data.logo_url);
+      if (data.timbro_url) setTimbroFirma(data.timbro_url);
+      if (data.margin_top_mm !== null && data.margin_top_mm !== undefined) setMarginTopMm(Number(data.margin_top_mm));
+      if (data.margin_bottom_mm !== null && data.margin_bottom_mm !== undefined) setMarginBottomMm(Number(data.margin_bottom_mm));
+      if (data.margin_lateral_mm !== null && data.margin_lateral_mm !== undefined) setMarginLateralMm(Number(data.margin_lateral_mm));
+      if (data.foto_height_cm !== null && data.foto_height_cm !== undefined) setFotoHeightCm(Number(data.foto_height_cm));
+      if (data.timbro_height_cm !== null && data.timbro_height_cm !== undefined) setTimbroHeightCm(Number(data.timbro_height_cm));
+      if (data.timbro_margin_mm !== null && data.timbro_margin_mm !== undefined) setTimbroMarginMm(Number(data.timbro_margin_mm));
+    };
+
     const fetchStudioSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('impostazioni_studio')
-          .select('*')
-          .eq('id', 'principale')
-          .maybeSingle();
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          const { data, error } = await supabase
+            .from('impostazioni_studio')
+            .select('*')
+            .eq('id', 'principale')
+            .maybeSingle();
 
-        if (error) {
-          console.warn('Avviso lettura impostazioni studio:', error.message);
-          return;
+          if (!error && data) {
+            applySettings(data);
+            await setCachedData(OFFLINE_KEYS.IMPOSTAZIONI_STUDIO, data);
+            return;
+          }
         }
 
-        if (data) {
-          if (data.logo_url) setLogoStudio(data.logo_url);
-          if (data.timbro_url) setTimbroFirma(data.timbro_url);
-          if (data.margin_top_mm !== null) setMarginTopMm(Number(data.margin_top_mm));
-          if (data.margin_bottom_mm !== null) setMarginBottomMm(Number(data.margin_bottom_mm));
-          if (data.margin_lateral_mm !== null) setMarginLateralMm(Number(data.margin_lateral_mm));
-          if (data.foto_height_cm !== null) setFotoHeightCm(Number(data.foto_height_cm));
-          if (data.timbro_height_cm !== null) setTimbroHeightCm(Number(data.timbro_height_cm));
-          if (data.timbro_margin_mm !== null) setTimbroMarginMm(Number(data.timbro_margin_mm));
+        // Fallback offline su IndexedDB
+        const cached = await getCachedData<ImpostazioniStudioCache>(OFFLINE_KEYS.IMPOSTAZIONI_STUDIO);
+        if (cached) {
+          applySettings(cached);
         }
       } catch (err) {
-        console.error('Errore recupero impostazioni:', err);
+        console.warn('Recupero impostazioni da cache offline:', err);
+        const cached = await getCachedData<ImpostazioniStudioCache>(OFFLINE_KEYS.IMPOSTAZIONI_STUDIO);
+        if (cached) applySettings(cached);
       }
     };
 

@@ -11,7 +11,10 @@ import {
   Trash2, 
   FileText,
   Edit,
-  Printer
+  Printer,
+  CloudOff,
+  CloudUpload,
+  RefreshCw
 } from 'lucide-react';
 import type { Sopralluogo, Cantiere } from '../types';
 
@@ -19,6 +22,10 @@ interface SopralluoghiViewProps {
   sopralluoghi: Sopralluogo[];
   cantieri: Cantiere[];
   selectedCantiereId: string | null;
+  pendingCount?: number;
+  isOnline?: boolean;
+  isSyncing?: boolean;
+  onSync?: () => void;
   onSelectCantiereFilter: (cantiereId: string | null) => void;
   onNewSopralluogo: () => void;
   onEditSopralluogo: (sopralluogo: Sopralluogo) => void;
@@ -30,6 +37,10 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
   sopralluoghi,
   cantieri,
   selectedCantiereId,
+  pendingCount = 0,
+  isOnline = true,
+  isSyncing = false,
+  onSync,
   onSelectCantiereFilter,
   onNewSopralluogo,
   onEditSopralluogo,
@@ -82,6 +93,36 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
           <span>Nuovo Sopralluogo</span>
         </button>
       </div>
+
+      {/* Banner Sincronizzazione Offline */}
+      {pendingCount > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3 text-amber-300">
+            <CloudUpload className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <p className="font-bold">
+                {pendingCount === 1 
+                  ? '1 verbale salvato in locale sul dispositivo in attesa di sincronizzazione cloud.' 
+                  : `${pendingCount} verbali salvati in locale sul dispositivo in attesa di sincronizzazione cloud.`}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                I dati e le immagini sono archiviati in sicurezza nella memoria locale e saranno inviati a Supabase non appena tornerà la connessione.
+              </p>
+            </div>
+          </div>
+          {isOnline && onSync && (
+            <button
+              type="button"
+              onClick={onSync}
+              disabled={isSyncing}
+              className="inline-flex items-center justify-center space-x-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition cursor-pointer self-start sm:self-auto shrink-0 shadow-sm disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sincronizzazione...' : 'Sincronizza ora'}</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Menu a tendina per Filtrare per Cantiere */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -150,7 +191,24 @@ export const SopralluoghiView: React.FC<SopralluoghiViewProps> = ({
                   </div>
 
                   {/* Esito e Azioni */}
-                  <div className="flex items-center space-x-2 self-end sm:self-auto">
+                  <div className="flex items-center space-x-2 self-end sm:self-auto flex-wrap justify-end gap-y-1">
+                    {/* Badge Offline / Pending */}
+                    {s.is_pending && (
+                      <span 
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          s.pending_status === 'error'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : s.pending_status === 'syncing'
+                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        }`}
+                        title={s.pending_error || 'Salvato in locale, in attesa di connessione'}
+                      >
+                        <CloudOff className="w-3 h-3 mr-1" />
+                        {s.pending_status === 'error' ? 'Errore Sync' : s.pending_status === 'syncing' ? 'Sync in corso...' : 'In attesa di sync'}
+                      </span>
+                    )}
+
                     {s.sospensione_lavori ? (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500 text-white animate-pulse">
                         <AlertOctagon className="w-3 h-3 mr-1" />

@@ -7,16 +7,69 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import { compressImage } from '../utils/imageCompressor';
 import { VerbalePdfModal } from './VerbalePdfModal';
+import { 
+  getCachedData, 
+  setCachedData, 
+  savePendingSopralluogo, 
+  removePendingSopralluogo,
+  sanitizeStoragePath,
+  extractStoragePath,
+  isUUID,
+  OFFLINE_KEYS 
+} from '../lib/offlineStore';
 import type { 
   Cantiere, Impresa, RilievoItem, PrescrizioneItem, 
   DispositivoApprestamento, Sopralluogo, FaseLavoro, PresenzeConvenuti,
-  ImpresaPresenteItem, RuoloCantiere, TipoSoggetto
+  ImpresaPresenteItem, RuoloCantiere, TipoSoggetto, PendingFoto
 } from '../types';
+
+interface StagedPhotoThumbnailProps {
+  file: File;
+  onRemove: () => void;
+}
+
+const StagedPhotoThumbnail: React.FC<StagedPhotoThumbnailProps> = ({ file, onRemove }) => {
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+
+  useEffect(() => {
+    let isSubscribed = true;
+    const objectUrl = URL.createObjectURL(file);
+    if (isSubscribed) {
+      setPreviewUrl(objectUrl);
+    }
+    return () => {
+      isSubscribed = false;
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [file]);
+
+  return (
+    <div className="relative group w-20 h-20 rounded-xl overflow-hidden border border-amber-500/50 bg-slate-950 flex flex-col justify-end shadow">
+      {previewUrl ? (
+        <img src={previewUrl} alt="Nuova foto" className="w-full h-full object-cover opacity-80" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-slate-900 text-[10px] text-slate-500">
+          Caricamento...
+        </div>
+      )}
+      <span className="absolute bottom-0 inset-x-0 bg-amber-500 text-slate-950 text-[10px] font-bold text-center">Nuova</span>
+      <button
+        type="button"
+        title="Rimuovi"
+        onClick={onRemove}
+        className="absolute top-1 right-1 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center cursor-pointer shadow-md"
+      >
+        <X className="w-3.5 h-3.5 stroke-[3]" />
+      </button>
+    </div>
+  );
+};
 
 interface ModalSopralluogoProps {
   isOpen: boolean;
   onClose: () => void;
   cantieri: Cantiere[];
+  imprese?: Impresa[];
   initialCantiereId?: string;
   sopralluogoToEdit?: Sopralluogo | null;
   onSuccess: () => void;
@@ -34,6 +87,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   isOpen, 
   onClose, 
   cantieri, 
+  imprese = [],
   initialCantiereId,
   sopralluogoToEdit,
   onSuccess 
@@ -45,6 +99,22 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
 
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [verbaleInAnteprima, setVerbaleInAnteprima] = useState<Sopralluogo | null>(null);
+  const previewBlobUrlsRef = React.useRef<string[]>([]);
+  const [fotoUrlsDaEliminareStorage, setFotoUrlsDaEliminareStorage] = useState<string[]>([]);
+
+  const revokePreviewBlobUrls = () => {
+    previewBlobUrlsRef.current.forEach(u => {
+      try { URL.revokeObjectURL(u); } catch {}
+    });
+    previewBlobUrlsRef.current = [];
+  };
+
+  useEffect(() => {
+    return () => {
+      revokePreviewBlobUrls();
+    };
+  }, []);
 
   const [presenze, setPresenze] = useState<PresenzeConvenuti>({
     committente: { presente: false, nome: '' },
@@ -158,19 +228,37 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   }, [sopralluogoToEdit, initialCantiereId, cantieri, isOpen]);
 
-  // Caricamento archivio completo imprese
+  // Caricamento archivio completo imprese con supporto Offline-First
   const fetchTutteLeImprese = async () => {
     try {
-      const { data, error } = await supabase
-        .from('imprese')
-        .select('*')
-        .order('ragione_sociale');
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const { data, error } = await supabase
+          .from('imprese')
+          .select('*')
+          .order('ragione_sociale');
 
-      if (!error && data) {
-        setTutteLeImpreseDB(data);
+        if (!error && data && data.length > 0) {
+          setTutteLeImpreseDB(data);
+          await setCachedData(OFFLINE_KEYS.IMPRESE, data);
+          return;
+        }
+      }
+
+      // Fallback su cache locale IndexedDB
+      const cached = await getCachedData<Impresa[]>(OFFLINE_KEYS.IMPRESE);
+      if (cached && cached.length > 0) {
+        setTutteLeImpreseDB(cached);
+      } else if (imprese && imprese.length > 0) {
+        setTutteLeImpreseDB(imprese);
       }
     } catch (err) {
-      console.error('Errore caricamento archivio imprese:', err);
+      console.warn('Fallback lettura imprese offline:', err);
+      const cached = await getCachedData<Impresa[]>(OFFLINE_KEYS.IMPRESE);
+      if (cached && cached.length > 0) {
+        setTutteLeImpreseDB(cached);
+      } else if (imprese && imprese.length > 0) {
+        setTutteLeImpreseDB(imprese);
+      }
     }
   };
 
@@ -188,33 +276,53 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     return `${item.nome} (${labelRuolo})`;
   });
 
-  // Verbale dal vivo per anteprima
-  const verbaleInAnteprima: Sopralluogo = {
-    id: sopralluogoToEdit?.id || 'anteprima-live',
-    cantiere_id: cantiereId,
-    data: dataSopralluogo,
-    ora: oraSopralluogo,
-    lavorazioni_in_corso: fasiLavoro
+  const handleOpenPreview = () => {
+    revokePreviewBlobUrls();
+
+    const lavorazioniSintetiche = fasiLavoro
       .filter(f => f.descrizione.trim())
       .map(f => `${f.descrizione}${f.impresa ? ` (${f.impresa})` : ''}`)
-      .join('; '),
-    fasi_lavoro: fasiLavoro,
-    imprese_presenti: arrayStringheImpresePresenti,
-    imprese_dettaglio: impresePresentiLista,
-    presenze: presenze,
-    dispositivi_apprestamenti: dispositivi,
-    argomenti_discussi: argomentiDiscussi,
-    rilievi: rilievi.map(r => ({
-      id: r.id,
-      descrizione: r.descrizione,
-      foto_urls: [
-        ...(r.foto_urls || []),
-        ...(filesPerRilievo[r.id] ? filesPerRilievo[r.id].map(f => URL.createObjectURL(f)) : [])
-      ]
-    })),
-    prescrizioni_lista: prescrizioni,
-    sospensione_lavori: sospensione,
-    motivo_sospensione: sospensione ? motivoSospensione : undefined,
+      .join('; ');
+
+    const rilieviAnteprima: RilievoItem[] = rilievi.map(r => {
+      const stagedFiles = filesPerRilievo[r.id] || [];
+      const stagedUrls = stagedFiles.map(f => {
+        const u = URL.createObjectURL(f);
+        previewBlobUrlsRef.current.push(u);
+        return u;
+      });
+      return {
+        id: r.id,
+        descrizione: r.descrizione,
+        foto_urls: [...(r.foto_urls || []), ...stagedUrls],
+      };
+    });
+
+    setVerbaleInAnteprima({
+      id: sopralluogoToEdit?.id || 'anteprima-live',
+      cantiere_id: cantiereId,
+      data: dataSopralluogo,
+      ora: oraSopralluogo,
+      lavorazioni_in_corso: lavorazioniSintetiche,
+      fasi_lavoro: fasiLavoro,
+      imprese_presenti: arrayStringheImpresePresenti,
+      imprese_dettaglio: impresePresentiLista,
+      presenze: presenze,
+      dispositivi_apprestamenti: dispositivi,
+      argomenti_discussi: argomentiDiscussi,
+      rilievi: rilieviAnteprima,
+      prescrizioni_lista: prescrizioni,
+      sospensione_lavori: sospensione,
+      motivo_sospensione: sospensione ? motivoSospensione : undefined,
+    });
+
+    setIsPreviewOpen(true);
+  };
+
+  const handleClosePreview = () => {
+    setIsPreviewOpen(false);
+    revokePreviewBlobUrls();
+    setVerbaleInAnteprima(null);
   };
 
   // Funzione per spostare elementi Su o Giù
@@ -322,19 +430,50 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   };
 
   const procediCreazioneImpresa = async (nome: string, tipoSogg: TipoSoggetto) => {
-    const { data, error } = await supabase.from('imprese').insert([{
+    const nuovaLocale: Impresa = {
+      id: crypto.randomUUID(),
       ragione_sociale: nome,
       tipo: tipoSogg,
-      cantiere_id: cantiereId || null,
-    }]).select().single();
+      cantiere_id: cantiereId || undefined,
+      ruolo: tipoSogg === 'lavoratore_autonomo' ? 'lavoratore_autonomo' : 'impresa',
+    };
 
-    if (!error && data) {
-      setTutteLeImpreseDB(prev => [...prev, data]);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setTutteLeImpreseDB(prev => [...prev, nuovaLocale]);
+      const cached = (await getCachedData<Impresa[]>(OFFLINE_KEYS.IMPRESE)) || [];
+      await setCachedData(OFFLINE_KEYS.IMPRESE, [...cached, nuovaLocale]);
       aggiungiImpresaPresente(nome, 'appalto');
       setNuovaImpresaNome('');
       setMostraAddImpresa(false);
-    } else if (error) {
-      alert('Errore salvataggio: ' + error.message);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.from('imprese').insert([{
+        ragione_sociale: nome,
+        tipo: tipoSogg,
+        cantiere_id: cantiereId || null,
+      }]).select().single();
+
+      if (!error && data) {
+        setTutteLeImpreseDB(prev => [...prev, data]);
+        const cached = (await getCachedData<Impresa[]>(OFFLINE_KEYS.IMPRESE)) || [];
+        await setCachedData(OFFLINE_KEYS.IMPRESE, [...cached, data]);
+        aggiungiImpresaPresente(nome, 'appalto');
+        setNuovaImpresaNome('');
+        setMostraAddImpresa(false);
+      } else {
+        // Fallback locale in caso di errore server/rete
+        setTutteLeImpreseDB(prev => [...prev, nuovaLocale]);
+        aggiungiImpresaPresente(nome, 'appalto');
+        setNuovaImpresaNome('');
+        setMostraAddImpresa(false);
+      }
+    } catch {
+      setTutteLeImpreseDB(prev => [...prev, nuovaLocale]);
+      aggiungiImpresaPresente(nome, 'appalto');
+      setNuovaImpresaNome('');
+      setMostraAddImpresa(false);
     }
   };
 
@@ -368,6 +507,12 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       }
       return r;
     }));
+
+    // Se l'immagine era già su Supabase Storage, traccia il percorso per eliminarla fisicamente
+    const path = extractStoragePath(urlToRemove, 'foto-sopralluoghi');
+    if (path) {
+      setFotoUrlsDaEliminareStorage(prev => [...prev, path]);
+    }
   };
   const handleRemoveStagedFile = (rilievoId: string, fileIndex: number) => {
     setFilesPerRilievo(prev => ({ ...prev, [rilievoId]: (prev[rilievoId] || []).filter((_, idx) => idx !== fileIndex) }));
@@ -383,35 +528,34 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     setLoading(true);
 
     try {
-      const rilieviFinali: RilievoItem[] = [];
+      // 1. Compressione preventiva e sanitizzazione dei percorsi
+      const cleanCantiere = sanitizeStoragePath(cantiereId);
+      const compressedByRilievo: Record<string, { blob: Blob; fileName: string; path: string }[]> = {};
+      const pendingFotosToSave: PendingFoto[] = [];
 
       for (const ril of rilievi) {
         const fileList = filesPerRilievo[ril.id] || [];
-        const uploadedUrls: string[] = [...(ril.foto_urls || [])];
+        compressedByRilievo[ril.id] = [];
 
         for (const file of fileList) {
           const fileCompresso = await compressImage(file, 200);
-          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-          const path = `sopralluoghi/${cantiereId}/${fileName}`;
-          
-          const { error: upErr } = await supabase.storage
-            .from('foto-sopralluoghi')
-            .upload(path, fileCompresso, {
-              contentType: 'image/jpeg',
-              upsert: true
-            });
+          const rawName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+          const fileName = sanitizeStoragePath(rawName);
+          const path = sanitizeStoragePath(`sopralluoghi/${cleanCantiere}/${fileName}`);
 
-          if (!upErr) {
-            const { data } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
-            if (data?.publicUrl) uploadedUrls.push(data.publicUrl);
-          }
+          compressedByRilievo[ril.id].push({
+            blob: fileCompresso,
+            fileName,
+            path
+          });
+
+          pendingFotosToSave.push({
+            rilievoId: ril.id,
+            fileBlob: fileCompresso,
+            fileName,
+            path
+          });
         }
-
-        rilieviFinali.push({
-          id: ril.id,
-          descrizione: ril.descrizione,
-          foto_urls: uploadedUrls,
-        });
       }
 
       const lavorazioniSintetiche = fasiLavoro
@@ -419,7 +563,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         .map(f => `${f.descrizione}${f.impresa ? ` (${f.impresa})` : ''}`)
         .join('; ');
 
-      const payload = {
+      // Rilievi privi di blob URL effimeri (le foto staged offline vivono come Blob in pendingFotos)
+      const rilieviBase: RilievoItem[] = rilievi.map(ril => ({
+        id: ril.id,
+        descrizione: ril.descrizione,
+        foto_urls: (ril.foto_urls || []).filter(u => !u.startsWith('blob:'))
+      }));
+
+      const basePayload = {
         cantiere_id: cantiereId,
         data: dataSopralluogo,
         ora: oraSopralluogo,
@@ -430,22 +581,123 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         presenze: presenze,
         dispositivi_apprestamenti: dispositivi,
         argomenti_discussi: argomentiDiscussi,
-        rilievi: rilieviFinali,
+        rilievi: rilieviBase,
         prescrizioni_lista: prescrizioni,
         sospensione_lavori: sospensione,
         motivo_sospensione: sospensione ? motivoSospensione : null,
       };
 
-      if (sopralluogoToEdit) {
-        const { error } = await supabase.from('sopralluoghi').update(payload).eq('id', sopralluogoToEdit.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('sopralluoghi').insert([payload]);
-        if (error) throw error;
+      const isCurrentlyOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      const isRealEdit = isUUID(sopralluogoToEdit?.id);
+      const persistentId = isRealEdit ? sopralluogoToEdit?.id : undefined;
+
+      // MODALITÀ OFFLINE ESPLICITA
+      if (!isCurrentlyOnline) {
+        const tempId = sopralluogoToEdit?.id || `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        await savePendingSopralluogo({
+          tempId,
+          sopralluogoId: persistentId,
+          cantiere_id: cantiereId,
+          payload: {
+            ...basePayload,
+            id: tempId,
+          },
+          pendingFotos: pendingFotosToSave,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        alert('Connessione di cantiere non disponibile.\n\nIl verbale e tutte le fotografie sono stati salvati in sicurezza sul dispositivo.\nVerranno sincronizzati automaticamente con il cloud non appena tornerà la rete.');
+        onSuccess();
+        onClose();
+        return;
       }
 
-      onSuccess();
-      onClose();
+      // MODALITÀ ONLINE CON FALLBACK SU OFFLINE IN CASO DI ERRORE RETE
+      try {
+        // Se c'erano foto rimosse dall'utente durante l'editing, eliminale fisicamente dal bucket
+        if (fotoUrlsDaEliminareStorage.length > 0) {
+          try {
+            await supabase.storage.from('foto-sopralluoghi').remove(fotoUrlsDaEliminareStorage);
+            setFotoUrlsDaEliminareStorage([]);
+          } catch (remErr) {
+            console.warn('[ModalSopralluogo] Errore rimozione foto scartate:', remErr);
+          }
+        }
+
+        const rilieviFinali: RilievoItem[] = [];
+
+        for (const ril of rilievi) {
+          const uploadedUrls: string[] = [...(ril.foto_urls || []).filter(u => !u.startsWith('blob:'))];
+          const stagedList = compressedByRilievo[ril.id] || [];
+
+          for (const item of stagedList) {
+            const { error: upErr } = await supabase.storage
+              .from('foto-sopralluoghi')
+              .upload(item.path, item.blob, {
+                contentType: 'image/jpeg',
+                upsert: true
+              });
+
+            if (upErr) throw upErr;
+
+            const { data } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(item.path);
+            if (data?.publicUrl) {
+              uploadedUrls.push(data.publicUrl);
+            }
+          }
+
+          rilieviFinali.push({
+            id: ril.id,
+            descrizione: ril.descrizione,
+            foto_urls: uploadedUrls,
+          });
+        }
+
+        const cloudPayload = {
+          ...basePayload,
+          rilievi: rilieviFinali,
+        };
+
+        if (isRealEdit && sopralluogoToEdit?.id) {
+          const { error } = await supabase.from('sopralluoghi').update(cloudPayload).eq('id', sopralluogoToEdit.id);
+          if (error) throw error;
+        } else {
+          delete (cloudPayload as any).id;
+          const { error } = await supabase.from('sopralluoghi').insert([cloudPayload]);
+          if (error) throw error;
+
+          // Se l'elemento proveniva dalla coda offline, rimuovilo da IndexedDB
+          if (sopralluogoToEdit?.id?.startsWith('pending_')) {
+            await removePendingSopralluogo(sopralluogoToEdit.id);
+          }
+        }
+
+        onSuccess();
+        onClose();
+      } catch (cloudErr: any) {
+        console.warn('Errore salvataggio cloud, fallback automatico su coda offline:', cloudErr);
+        const tempId = sopralluogoToEdit?.id || `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        await savePendingSopralluogo({
+          tempId,
+          sopralluogoId: persistentId,
+          cantiere_id: cantiereId,
+          payload: {
+            ...basePayload,
+            id: tempId,
+          },
+          pendingFotos: pendingFotosToSave,
+          status: 'pending',
+          errorMessage: cloudErr?.message,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        alert('Connessione al server instabile o assente.\n\nNessun dato è andato perso: il verbale e le foto sono stati salvati in locale su questo dispositivo e verranno sincronizzati al ritorno della linea.');
+        onSuccess();
+        onClose();
+      }
     } catch (err: any) {
       alert('Errore salvataggio verbale: ' + err.message);
     } finally {
@@ -475,7 +727,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsPreviewOpen(true)}
+                onClick={handleOpenPreview}
                 className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold rounded-xl border border-amber-500/30 flex items-center gap-1.5 shadow-sm transition cursor-pointer text-xs"
                 title="Vedi l'anteprima del verbale impaginato prima di salvare"
               >
@@ -483,7 +735,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 <span className="hidden sm:inline">Anteprima PDF</span>
               </button>
 
-              <button type="button" onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
+              <button 
+                type="button" 
+                onClick={() => {
+                  revokePreviewBlobUrls();
+                  onClose();
+                }} 
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1101,18 +1360,11 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                         ))}
 
                         {filesPerRilievo[ril.id]?.map((file, fileIdx) => (
-                          <div key={`new-${fileIdx}`} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-amber-500/50 bg-slate-950 flex flex-col justify-end shadow">
-                            <img src={URL.createObjectURL(file)} alt="Nuova foto" className="w-full h-full object-cover opacity-80" />
-                            <span className="absolute bottom-0 inset-x-0 bg-amber-500 text-slate-950 text-[10px] font-bold text-center">Nuova</span>
-                            <button
-                              type="button"
-                              title="Rimuovi"
-                              onClick={() => handleRemoveStagedFile(ril.id, fileIdx)}
-                              className="absolute top-1 right-1 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center cursor-pointer shadow-md"
-                            >
-                              <X className="w-3.5 h-3.5 stroke-[3]" />
-                            </button>
-                          </div>
+                          <StagedPhotoThumbnail
+                            key={`new-${fileIdx}`}
+                            file={file}
+                            onRemove={() => handleRemoveStagedFile(ril.id, fileIdx)}
+                          />
                         ))}
                       </div>
                     </div>
@@ -1320,10 +1572,10 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       </div>
 
       {/* Anteprima PDF in tempo reale */}
-      {isPreviewOpen && (
+      {isPreviewOpen && verbaleInAnteprima && (
         <VerbalePdfModal
           isOpen={isPreviewOpen}
-          onClose={() => setIsPreviewOpen(false)}
+          onClose={handleClosePreview}
           sopralluogo={verbaleInAnteprima}
           cantiere={cantieri.find(c => c.id === cantiereId)}
         />

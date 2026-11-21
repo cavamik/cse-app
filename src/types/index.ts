@@ -85,8 +85,32 @@ export interface Sopralluogo {
   rilievi: RilievoItem[];
   prescrizioni_lista: PrescrizioneItem[];
   sospensione_lavori: boolean;
-  motivo_sospensione?: string;
+  motivo_sospensione?: string | null;
   created_at?: string;
+  // Campi per supporto Offline-First
+  is_pending?: boolean;
+  pending_status?: 'pending' | 'syncing' | 'error';
+  pending_error?: string;
+  temp_id?: string;
+}
+
+export interface PendingFoto {
+  rilievoId: string;
+  fileBlob: Blob;
+  fileName: string;
+  path: string;
+}
+
+export interface PendingSopralluogo {
+  tempId: string;
+  sopralluogoId?: string;
+  cantiere_id: string;
+  payload: Omit<Sopralluogo, 'id'> & { id?: string };
+  pendingFotos: PendingFoto[];
+  status: 'pending' | 'syncing' | 'error';
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DashboardStats {
