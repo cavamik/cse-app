@@ -115,11 +115,12 @@ export const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  const handleDeleteCantiere = async (id: string, nome: string) => {
-    if (!window.confirm(`Eliminare il cantiere "${nome}" e tutti i relativi dati?`)) return;
-    await supabase.from('cantieri').delete().eq('id', id);
-    fetchData();
-  };
+  // Predisposizione eliminazione cantiere (in attesa di pulsante UI dedicato)
+  // const handleDeleteCantiere = async (id: string, nome: string) => {
+  //   if (!window.confirm(`Eliminare il cantiere "${nome}" e tutti i relativi dati?`)) return;
+  //   await supabase.from('cantieri').delete().eq('id', id);
+  //   fetchData();
+  // };
 
   const handleDeleteSopralluogo = async (id: string) => {
     if (!window.confirm('Eliminare questo verbale di sopralluogo?')) return;

@@ -1,8 +1,6 @@
 export type NavTab = 'cantieri' | 'sopralluoghi' | 'imprese';
-export const NavTab = {} as unknown as NavTab;
 
 export type StatoCantiere = 'in_corso' | 'sospeso' | 'completato' | 'programmato';
-export const StatoCantiere = {} as unknown as StatoCantiere;
 
 export type TipoSoggetto = 'impresa' | 'lavoratore_autonomo';
 export type RuoloCantiere = 'appalto' | 'subappalto';
@@ -20,24 +18,22 @@ export interface Cantiere {
   created_at?: string;
   updated_at?: string;
 }
-export const Cantiere = {} as unknown as Cantiere;
 
 export interface Impresa {
   id: string;
   cantiere_id?: string;
   ragione_sociale: string;
-  tipo?: TipoSoggetto; // 'impresa' | 'lavoratore_autonomo'
+  tipo?: TipoSoggetto;
   p_iva?: string;
   referente?: string;
   telefono?: string;
   ruolo?: string;
 }
-export const Impresa = {} as unknown as Impresa;
 
 export interface ImpresaPresenteItem {
   nome: string;
-  ruolo_cantiere: RuoloCantiere; // 'appalto' | 'subappalto'
-  tipo?: TipoSoggetto; // 'impresa' | 'lavoratore_autonomo'
+  ruolo_cantiere: RuoloCantiere;
+  tipo?: TipoSoggetto;
 }
 
 export interface RilievoItem {
@@ -92,11 +88,9 @@ export interface Sopralluogo {
   motivo_sospensione?: string;
   created_at?: string;
 }
-export const Sopralluogo = {} as unknown as Sopralluogo;
 
 export interface DashboardStats {
   cantieriAttivi: number;
   sopralluoghiMese: number;
   prescrizioniAperte: number;
 }
-export const DashboardStats = {} as unknown as DashboardStats;

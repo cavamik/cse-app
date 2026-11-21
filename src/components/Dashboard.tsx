@@ -19,7 +19,7 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
-  stats,
+  stats: _stats,
   cantieri,
   sopralluoghi = [],
   onNewCantiere,

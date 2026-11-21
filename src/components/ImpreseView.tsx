@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  Users, Building2, Plus, Phone, UserCheck, 
-  FolderOpen, ArrowRight, ShieldCheck, X, Trash2, Edit 
+  Building2, Plus, 
+  FolderOpen, ArrowRight, X, Trash2, Edit 
 } from 'lucide-react';
 import type { Impresa, Cantiere, Sopralluogo, TipoSoggetto } from '../types';
 import { supabase } from '../lib/supabaseClient';

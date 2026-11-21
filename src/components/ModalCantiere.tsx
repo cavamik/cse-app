@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Building2, Plus, Loader2, UserCheck, HardHat } from 'lucide-react';
+import { X, Building2, Plus, Loader2, UserCheck } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import type { StatoCantiere } from '../types';
 
