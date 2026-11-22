@@ -5,6 +5,14 @@ export type StatoCantiere = 'in_corso' | 'sospeso' | 'completato' | 'programmato
 export type TipoSoggetto = 'impresa' | 'lavoratore_autonomo';
 export type RuoloCantiere = 'appalto' | 'subappalto';
 
+/**
+ * Tipologie di atto / verbale gestite da CantierHub:
+ * - CSE: Coordinatore per la Sicurezza in fase di Esecuzione (D.Lgs. 81/08)
+ * - DL: Direttore dei Lavori (Avanzamento opere, maestranze, ordini di servizio)
+ * - RILIEVO: Fascicolo fotografico tecnico e rilievo dimensionale dello stato di fatto
+ */
+export type TipoVerbale = 'CSE' | 'DL' | 'RILIEVO';
+
 export interface Cantiere {
   id: string;
   nome: string;
@@ -14,6 +22,7 @@ export interface Cantiere {
   progettista?: string;
   cse?: string;
   impresa_esecutrice?: string;
+  imprese_ids?: string[]; // Array di ID imprese associate al cantiere
   stato: StatoCantiere;
   created_at?: string;
   updated_at?: string;
@@ -25,6 +34,7 @@ export interface Impresa {
   ragione_sociale: string;
   tipo?: TipoSoggetto;
   p_iva?: string;
+  email?: string;
   referente?: string;
   telefono?: string;
   ruolo?: string;
@@ -34,12 +44,18 @@ export interface ImpresaPresenteItem {
   nome: string;
   ruolo_cantiere: RuoloCantiere;
   tipo?: TipoSoggetto;
+  operai_presenti?: number; // Per DL: numero maestranze / operai presenti
 }
 
 export interface RilievoItem {
   id: string;
   descrizione: string;
   foto_urls: string[];
+  ambiente?: string; // Per RILIEVO (es. Piano 1, Prospetto Sud, Vano Scala)
+  quote_note?: string; // Compatibilità note dimensionali legacy
+  misura_1?: string; // Misura opzionale 1 (es. H = 2.70 m, L = 4.50 m)
+  misura_2?: string; // Misura opzionale 2 (es. Spessore = 30 cm)
+  misura_3?: string; // Misura opzionale 3 (es. Diagonale = 5.24 m)
 }
 
 export interface PrescrizioneItem {
@@ -73,6 +89,7 @@ export interface Sopralluogo {
   id: string;
   cantiere_id: string;
   cantiere_nome?: string;
+  tipo_verbale?: TipoVerbale; // Default 'CSE' per retrocompatibilità
   data: string;
   ora?: string;
   lavorazioni_in_corso?: string;
@@ -87,6 +104,15 @@ export interface Sopralluogo {
   sospensione_lavori: boolean;
   motivo_sospensione?: string | null;
   created_at?: string;
+
+  // Campi dedicati per Direzione Lavori (DL)
+  condizioni_meteo?: string | null; // es. Sereno / Coperto / Pioggia (operatività cantiere)
+  ordini_servizio?: string | null; // Ordini di servizio e disposizioni della D.L.
+  operai_totali?: number | null; // Totale maestranze presenti in cantiere
+
+  // Campi dedicati per RILIEVO fotografico / tecnico
+  note_tecniche?: string | null; // Note introduttive generali del rilievo
+
   // Campi per supporto Offline-First
   is_pending?: boolean;
   pending_status?: 'pending' | 'syncing' | 'error';

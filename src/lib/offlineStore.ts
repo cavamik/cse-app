@@ -25,7 +25,7 @@ export function isUUID(str?: string | null): boolean {
  * - Sostituisce caratteri non alfanumerici (tranne . _ / -) con underscore
  */
 export function sanitizeStoragePath(rawPath: string): string {
-  if (!rawPath || typeof rawPath !== 'string') return `sopralluoghi/${Date.now()}.jpg`;
+  if (!rawPath || typeof rawPath !== 'string') return `sopralluoghi/${Date.now()}.webp`;
   const trimmed = rawPath.trim().replace(/^\/+|\/+$/g, '');
   const segments = trimmed.split('/');
   const sanitizedSegments = segments.map(seg => 
@@ -194,17 +194,19 @@ export async function syncPendingSopralluoghi(
 
         for (const foto of item.pendingFotos) {
           const cleanPath = sanitizeStoragePath(foto.path);
+          const isWebp = cleanPath.toLowerCase().endsWith('.webp');
+          const mimeType = isWebp ? 'image/webp' : 'image/jpeg';
           
-          // Assicura che fileBody sia un Blob valido con type esplicito image/jpeg
+          // Assicura che fileBody sia un Blob valido con il mime type appropriato (WebP o JPEG)
           let fileBody: Blob;
           if (foto.fileBlob instanceof Blob) {
-            fileBody = new Blob([foto.fileBlob], { type: 'image/jpeg' });
+            fileBody = new Blob([foto.fileBlob], { type: mimeType });
           } else if ((foto.fileBlob as any) instanceof ArrayBuffer || ArrayBuffer.isView(foto.fileBlob as any)) {
-            fileBody = new Blob([foto.fileBlob as any], { type: 'image/jpeg' });
+            fileBody = new Blob([foto.fileBlob as any], { type: mimeType });
           } else if (typeof foto.fileBlob === 'object' && foto.fileBlob !== null) {
-            fileBody = new Blob([foto.fileBlob as any], { type: 'image/jpeg' });
+            fileBody = new Blob([foto.fileBlob as any], { type: mimeType });
           } else {
-            fileBody = new Blob([], { type: 'image/jpeg' });
+            fileBody = new Blob([], { type: mimeType });
           }
 
           console.log('[offlineStore] Tentativo upload foto:', {
@@ -220,7 +222,7 @@ export async function syncPendingSopralluoghi(
           const { error: uploadError } = await supabase.storage
             .from('foto-sopralluoghi')
             .upload(cleanPath, fileBody, {
-              contentType: 'image/jpeg',
+              contentType: mimeType,
               upsert: true,
             });
 
@@ -292,6 +294,11 @@ export async function syncPendingSopralluoghi(
         delete (updatedPayload as any).createdAt;
         delete (updatedPayload as any).updatedAt;
 
+        // Garanzia presenza tipo_verbale (default 'CSE' se non impostato)
+        if (!updatedPayload.tipo_verbale) {
+          updatedPayload.tipo_verbale = 'CSE';
+        }
+
         // Passo 3: Upsert atomico del record nel database
         // Un record è un aggiornamento cloud solo se il sopralluogoId è un vero UUID valido.
         // Se inizia con 'pending_' o non è un UUID, si tratta di un nuovo verbale da inserire.
@@ -300,6 +307,7 @@ export async function syncPendingSopralluoghi(
         console.log('[offlineStore] Inserimento/aggiornamento database sopralluogo:', {
           isUpdate: isExistingCloudRecord,
           sopralluogoIdOriginale: item.sopralluogoId,
+          tipo_verbale: updatedPayload.tipo_verbale,
         });
 
         if (isExistingCloudRecord && item.sopralluogoId) {
@@ -310,7 +318,12 @@ export async function syncPendingSopralluoghi(
             .eq('id', item.sopralluogoId);
 
           if (dbError) {
-            console.error('[offlineStore] Errore DB update:', dbError);
+            console.error('[offlineStore] Errore DB update:', {
+              message: dbError.message,
+              details: dbError.details,
+              hint: dbError.hint,
+              code: dbError.code,
+            });
             throw dbError;
           }
         } else {
@@ -318,13 +331,21 @@ export async function syncPendingSopralluoghi(
           // di generare un UUID valido e univoco
           delete (updatedPayload as any).id;
 
-          console.log('[offlineStore] Esecuzione INSERT nuovo record');
+          console.log('[offlineStore] Esecuzione INSERT nuovo record:', {
+            tipo_verbale: updatedPayload.tipo_verbale,
+            cantiere_id: updatedPayload.cantiere_id,
+          });
           const { error: dbError } = await supabase
             .from('sopralluoghi')
             .insert([updatedPayload]);
 
           if (dbError) {
-            console.error('[offlineStore] Errore DB insert:', dbError);
+            console.error('[offlineStore] Errore DB insert:', {
+              message: dbError.message,
+              details: dbError.details,
+              hint: dbError.hint,
+              code: dbError.code,
+            });
             throw dbError;
           }
         }
@@ -336,9 +357,17 @@ export async function syncPendingSopralluoghi(
 
       } catch (err: any) {
         failedCount++;
-        const msg = err?.message || 'Errore sconosciuto durante la sincronizzazione';
-        console.error(`[offlineStore] Errore sincronizzazione elemento ${item.tempId}:`, msg);
-        await updatePendingStatus(item.tempId, 'error', msg);
+        const msg = err?.message || (typeof err === 'string' ? err : 'Errore sconosciuto durante la sincronizzazione');
+        const details = err?.details ? ` (${err.details})` : '';
+        const fullMsg = `${msg}${details}`;
+        console.error(`[offlineStore] Errore sincronizzazione elemento ${item.tempId}:`, {
+          message: err?.message,
+          details: err?.details,
+          hint: err?.hint,
+          code: err?.code,
+          fullError: err,
+        });
+        await updatePendingStatus(item.tempId, 'error', fullMsg);
       }
     }
   } finally {

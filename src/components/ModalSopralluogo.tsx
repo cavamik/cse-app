@@ -2,11 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, ClipboardCheck, Plus, Trash2, Camera, AlertOctagon, 
   Building2, Users, Loader2, CheckSquare, Square, Clock,
-  ArrowUp, ArrowDown, AlertTriangle, Check, Eye
+  ArrowUp, ArrowDown, AlertTriangle, Check, Eye, Compass,
+  Layers, CloudSun, ScrollText, MapPin, Maximize2, HardHat,
+  Lock, Unlock
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { compressImage } from '../utils/imageCompressor';
 import { VerbalePdfModal } from './VerbalePdfModal';
+import { 
+  getImpreseDelCantiere, 
+  associaImpresaACantiere, 
+  isValidEmail 
+} from '../utils/cantiereImprese';
 import { 
   getCachedData, 
   setCachedData, 
@@ -20,7 +27,7 @@ import {
 import type { 
   Cantiere, Impresa, RilievoItem, PrescrizioneItem, 
   DispositivoApprestamento, Sopralluogo, FaseLavoro, PresenzeConvenuti,
-  ImpresaPresenteItem, RuoloCantiere, TipoSoggetto, PendingFoto
+  ImpresaPresenteItem, RuoloCantiere, TipoSoggetto, PendingFoto, TipoVerbale
 } from '../types';
 
 interface StagedPhotoThumbnailProps {
@@ -70,7 +77,9 @@ interface ModalSopralluogoProps {
   onClose: () => void;
   cantieri: Cantiere[];
   imprese?: Impresa[];
+  sopralluoghi?: Sopralluogo[];
   initialCantiereId?: string;
+  initialTipoVerbale?: TipoVerbale;
   sopralluogoToEdit?: Sopralluogo | null;
   onSuccess: () => void;
 }
@@ -88,15 +97,27 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   onClose, 
   cantieri, 
   imprese = [],
+  sopralluoghi = [],
   initialCantiereId,
+  initialTipoVerbale = 'CSE',
   sopralluogoToEdit,
   onSuccess 
 }) => {
   const [loading, setLoading] = useState(false);
+  const [tipoVerbale, setTipoVerbale] = useState<TipoVerbale>('CSE');
+  const [isTipoUnlocked, setIsTipoUnlocked] = useState(false);
   const [cantiereId, setCantiereId] = useState('');
-  const [dataSopralluogo, setDataSopralluogo] = useState(new Date().toISOString().split('T')[0]);
+  const [dataSopralluogo, setDataSopralluogo] = useState(() => new Date().toISOString().split('T')[0]);
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
+
+  // Campi dedicati Direzione Lavori (DL)
+  const [condizioniMeteo, setCondizioniMeteo] = useState<string>('Sereno - Cantiere regolarmente operativo');
+  const [ordiniServizio, setOrdiniServizio] = useState<string>('');
+  const [operaiTotali, setOperaiTotali] = useState<number | undefined>(undefined);
+
+  // Campi dedicati RILIEVO fotografico / dimensionale
+  const [noteTecniche, setNoteTecniche] = useState<string>('');
 
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [verbaleInAnteprima, setVerbaleInAnteprima] = useState<Sopralluogo | null>(null);
@@ -138,6 +159,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [impresePresentiLista, setImpresePresentiLista] = useState<ImpresaPresenteItem[]>([]);
   
   const [nuovaImpresaNome, setNuovaImpresaNome] = useState('');
+  const [nuovaEmail, setNuovaEmail] = useState('');
   const [nuovoTipo, setNuovoTipo] = useState<TipoSoggetto>('impresa');
   const [mostraAddImpresa, setMostraAddImpresa] = useState(false);
 
@@ -157,10 +179,17 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
   useEffect(() => {
     if (sopralluogoToEdit) {
+      setIsTipoUnlocked(false);
+      setTipoVerbale(sopralluogoToEdit.tipo_verbale || initialTipoVerbale || 'CSE');
       setCantiereId(sopralluogoToEdit.cantiere_id);
       setDataSopralluogo(sopralluogoToEdit.data);
       setOraSopralluogo(sopralluogoToEdit.ora || '09:00');
       setArgomentiDiscussi(sopralluogoToEdit.argomenti_discussi || '');
+      setCondizioniMeteo(sopralluogoToEdit.condizioni_meteo || 'Sereno - Cantiere regolarmente operativo');
+      setOrdiniServizio(sopralluogoToEdit.ordini_servizio || '');
+      setOperaiTotali(sopralluogoToEdit.operai_totali ?? undefined);
+      setNoteTecniche(sopralluogoToEdit.note_tecniche || '');
+
       setRilievi(sopralluogoToEdit.rilievi?.length ? sopralluogoToEdit.rilievi : [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }]);
       setPrescrizioni(sopralluogoToEdit.prescrizioni_lista || []);
       setSospensione(sopralluogoToEdit.sospensione_lavori || false);
@@ -203,6 +232,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         setDispositivi(sopralluogoToEdit.dispositivi_apprestamenti);
       }
     } else {
+      setIsTipoUnlocked(true);
+      setTipoVerbale(initialTipoVerbale || 'CSE');
       const selectedCId = initialCantiereId || (cantieri.length > 0 ? cantieri[0].id : '');
       setCantiereId(selectedCId);
 
@@ -218,6 +249,10 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       setOraSopralluogo('09:00');
       setFasiLavoro([{ id: crypto.randomUUID(), descrizione: '', impresa: '' }]);
       setArgomentiDiscussi('');
+      setCondizioniMeteo('Sereno - Cantiere regolarmente operativo');
+      setOrdiniServizio('');
+      setOperaiTotali(undefined);
+      setNoteTecniche('');
       setImpresePresentiLista([]);
       setRilievi([{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }]);
       setFilesPerRilievo({});
@@ -226,7 +261,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       setMotivoSospensione('');
       setDispositivi(DISPOSITIVI_PREDEFINITI.map(d => ({ nome: d, selezionato: false, note: '' })));
     }
-  }, [sopralluogoToEdit, initialCantiereId, cantieri, isOpen]);
+  }, [sopralluogoToEdit, initialCantiereId, initialTipoVerbale, cantieri, isOpen]);
 
   // Caricamento archivio completo imprese con supporto Offline-First
   const fetchTutteLeImprese = async () => {
@@ -277,46 +312,70 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   });
 
   const handleOpenPreview = () => {
-    revokePreviewBlobUrls();
+    try {
+      revokePreviewBlobUrls();
 
-    const lavorazioniSintetiche = fasiLavoro
-      .filter(f => f.descrizione.trim())
-      .map(f => `${f.descrizione}${f.impresa ? ` (${f.impresa})` : ''}`)
-      .join('; ');
+      const lavorazioniSintetiche = (fasiLavoro || [])
+        .filter(f => f && f.descrizione && f.descrizione.trim())
+        .map(f => `${f.descrizione.trim()}${f.impresa && f.impresa.trim() ? ` (${f.impresa.trim()})` : ''}`)
+        .join('; ');
 
-    const rilieviAnteprima: RilievoItem[] = rilievi.map(r => {
-      const stagedFiles = filesPerRilievo[r.id] || [];
-      const stagedUrls = stagedFiles.map(f => {
-        const u = URL.createObjectURL(f);
-        previewBlobUrlsRef.current.push(u);
-        return u;
+      const rilieviAnteprima: RilievoItem[] = (rilievi || []).map(r => {
+        const stagedFiles = filesPerRilievo[r.id] || [];
+        const stagedUrls = stagedFiles
+          .filter(f => f instanceof Blob)
+          .map(f => {
+            try {
+              const u = URL.createObjectURL(f);
+              previewBlobUrlsRef.current.push(u);
+              return u;
+            } catch (e) {
+              console.warn('Errore generazione blob url anteprima:', e);
+              return '';
+            }
+          })
+          .filter(Boolean);
+
+        return {
+          id: r.id,
+          descrizione: r.descrizione || '',
+          ambiente: r.ambiente || undefined,
+          quote_note: r.quote_note || undefined,
+          misura_1: r.misura_1 || undefined,
+          misura_2: r.misura_2 || undefined,
+          misura_3: r.misura_3 || undefined,
+          foto_urls: [...(r.foto_urls || []), ...stagedUrls],
+        };
       });
-      return {
-        id: r.id,
-        descrizione: r.descrizione,
-        foto_urls: [...(r.foto_urls || []), ...stagedUrls],
-      };
-    });
 
-    setVerbaleInAnteprima({
-      id: sopralluogoToEdit?.id || 'anteprima-live',
-      cantiere_id: cantiereId,
-      data: dataSopralluogo,
-      ora: oraSopralluogo,
-      lavorazioni_in_corso: lavorazioniSintetiche,
-      fasi_lavoro: fasiLavoro,
-      imprese_presenti: arrayStringheImpresePresenti,
-      imprese_dettaglio: impresePresentiLista,
-      presenze: presenze,
-      dispositivi_apprestamenti: dispositivi,
-      argomenti_discussi: argomentiDiscussi,
-      rilievi: rilieviAnteprima,
-      prescrizioni_lista: prescrizioni,
-      sospensione_lavori: sospensione,
-      motivo_sospensione: sospensione ? motivoSospensione : undefined,
-    });
+      setVerbaleInAnteprima({
+        id: sopralluogoToEdit?.id || 'anteprima-live',
+        cantiere_id: cantiereId || '',
+        tipo_verbale: tipoVerbale,
+        data: dataSopralluogo || new Date().toISOString().split('T')[0],
+        ora: oraSopralluogo || '09:00',
+        lavorazioni_in_corso: lavorazioniSintetiche || '',
+        fasi_lavoro: fasiLavoro || [],
+        imprese_presenti: arrayStringheImpresePresenti || [],
+        imprese_dettaglio: impresePresentiLista || [],
+        presenze: presenze,
+        dispositivi_apprestamenti: dispositivi || [],
+        argomenti_discussi: argomentiDiscussi || '',
+        rilievi: rilieviAnteprima,
+        prescrizioni_lista: prescrizioni || [],
+        sospensione_lavori: Boolean(sospensione),
+        motivo_sospensione: motivoSospensione || undefined,
+        condizioni_meteo: condizioniMeteo || undefined,
+        ordini_servizio: ordiniServizio || undefined,
+        operai_totali: operaiTotali || undefined,
+        note_tecniche: noteTecniche || undefined,
+      });
 
-    setIsPreviewOpen(true);
+      setIsPreviewOpen(true);
+    } catch (err) {
+      console.error('[ModalSopralluogo] Errore apertura anteprima:', err);
+      alert('Impossibile aprire l\'anteprima: ' + (err as any)?.message);
+    }
   };
 
   const handleClosePreview = () => {
@@ -343,9 +402,13 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const moveFaseLavoro = (index: number, direction: 'up' | 'down') => setFasiLavoro(prev => moveItem(prev, index, direction));
 
   // 2. Rilievi
-  const addRilievo = () => setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }, ...prev]);
+  const addRilievo = () => setRilievi(prev => [{ id: crypto.randomUUID(), descrizione: '', ambiente: '', quote_note: '', misura_1: '', misura_2: '', misura_3: '', foto_urls: [] }, ...prev]);
   const removeRilievo = (id: string) => setRilievi(prev => prev.filter(r => r.id !== id));
   const updateRilievoTesto = (id: string, text: string) => setRilievi(prev => prev.map(r => r.id === id ? { ...r, descrizione: text } : r));
+  const updateRilievoAmbiente = (id: string, amb: string) => setRilievi(prev => prev.map(r => r.id === id ? { ...r, ambiente: amb } : r));
+  const updateRilievoQuote = (id: string, q: string) => setRilievi(prev => prev.map(r => r.id === id ? { ...r, quote_note: q } : r));
+  const updateRilievoMisura = (id: string, field: 'misura_1' | 'misura_2' | 'misura_3', val: string) =>
+    setRilievi(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
   const moveRilievo = (index: number, direction: 'up' | 'down') => setRilievi(prev => moveItem(prev, index, direction));
 
   // 3. Prescrizioni
@@ -379,24 +442,47 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     ));
   };
 
+  const updateOperaiImpresa = (nome: string, operai?: number) => {
+    setImpresePresentiLista(prev => prev.map(i =>
+      i.nome === nome ? { ...i, operai_presenti: operai } : i
+    ));
+  };
+
   const moveImpresaPresente = (index: number, direction: 'up' | 'down') => {
     setImpresePresentiLista(prev => moveItem(prev, index, direction));
   };
 
   const nomiSelezionati = impresePresentiLista.map(i => i.nome);
 
-  const altreImpreseDelCantiere = tutteLeImpreseDB.filter(
-    imp => imp.cantiere_id === cantiereId && !nomiSelezionati.includes(imp.ragione_sociale)
+  const cantiereAttivo = cantieri.find(c => c.id === cantiereId);
+  const impreseAssociateAlCantiere = getImpreseDelCantiere(cantiereAttivo, tutteLeImpreseDB, sopralluoghi);
+
+  const altreImpreseDelCantiere = impreseAssociateAlCantiere.filter(
+    imp => !nomiSelezionati.includes(imp.ragione_sociale)
   );
 
   const altreImpreseArchivioGenerale = tutteLeImpreseDB.filter(
-    imp => imp.cantiere_id !== cantiereId && !nomiSelezionati.includes(imp.ragione_sociale)
+    imp => !impreseAssociateAlCantiere.some(a => a.id === imp.id) && !nomiSelezionati.includes(imp.ragione_sociale)
   );
+
+  const handleAssociaImpresaDallArchivio = async (ragioneSociale: string) => {
+    if (!ragioneSociale) return;
+    aggiungiImpresaPresente(ragioneSociale, 'appalto');
+    const imp = tutteLeImpreseDB.find(i => i.ragione_sociale === ragioneSociale);
+    if (imp && cantiereAttivo) {
+      await associaImpresaACantiere(cantiereAttivo, imp.id, tutteLeImpreseDB, sopralluoghi);
+    }
+  };
 
   // Creazione nuova impresa
   const handleVerificaECreaNuovaImpresa = async () => {
     const nome = nuovaImpresaNome.trim();
     if (!nome) return;
+
+    if (nuovaEmail.trim() && !isValidEmail(nuovaEmail)) {
+      alert('Inserisci un indirizzo email valido (es. info@impresa.it) oppure lascia il campo vuoto.');
+      return;
+    }
 
     const giaPresente = tutteLeImpreseDB.find(
       i => i.ragione_sociale.toLowerCase() === nome.toLowerCase()
@@ -410,14 +496,18 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       return;
     }
 
-    await procediCreazioneImpresa(nome, nuovoTipo);
+    await procediCreazioneImpresa(nome, nuovoTipo, nuovaEmail);
   };
 
-  const handleUsaEsistente = () => {
+  const handleUsaEsistente = async () => {
     if (!conflittoImpresa) return;
-    const nomeEsistente = conflittoImpresa.impresaEsistente.ragione_sociale;
-    aggiungiImpresaPresente(nomeEsistente, 'appalto');
+    const esistente = conflittoImpresa.impresaEsistente;
+    aggiungiImpresaPresente(esistente.ragione_sociale, 'appalto');
+    if (cantiereAttivo) {
+      await associaImpresaACantiere(cantiereAttivo, esistente.id, tutteLeImpreseDB, sopralluoghi);
+    }
     setNuovaImpresaNome('');
+    setNuovaEmail('');
     setMostraAddImpresa(false);
     setConflittoImpresa(null);
   };
@@ -426,14 +516,15 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     if (!conflittoImpresa) return;
     const nome = conflittoImpresa.nomeDigitato;
     setConflittoImpresa(null);
-    await procediCreazioneImpresa(nome, nuovoTipo);
+    await procediCreazioneImpresa(nome, nuovoTipo, nuovaEmail);
   };
 
-  const procediCreazioneImpresa = async (nome: string, tipoSogg: TipoSoggetto) => {
+  const procediCreazioneImpresa = async (nome: string, tipoSogg: TipoSoggetto, emailInput?: string) => {
     const nuovaLocale: Impresa = {
       id: crypto.randomUUID(),
       ragione_sociale: nome,
       tipo: tipoSogg,
+      email: emailInput?.trim() || undefined,
       cantiere_id: cantiereId || undefined,
       ruolo: tipoSogg === 'lavoratore_autonomo' ? 'lavoratore_autonomo' : 'impresa',
     };
@@ -442,8 +533,12 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       setTutteLeImpreseDB(prev => [...prev, nuovaLocale]);
       const cached = (await getCachedData<Impresa[]>(OFFLINE_KEYS.IMPRESE)) || [];
       await setCachedData(OFFLINE_KEYS.IMPRESE, [...cached, nuovaLocale]);
+      if (cantiereAttivo) {
+        await associaImpresaACantiere(cantiereAttivo, nuovaLocale.id, [...tutteLeImpreseDB, nuovaLocale], sopralluoghi);
+      }
       aggiungiImpresaPresente(nome, 'appalto');
       setNuovaImpresaNome('');
+      setNuovaEmail('');
       setMostraAddImpresa(false);
       return;
     }
@@ -452,6 +547,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       const { data, error } = await supabase.from('imprese').insert([{
         ragione_sociale: nome,
         tipo: tipoSogg,
+        email: emailInput?.trim() || null,
         cantiere_id: cantiereId || null,
       }]).select().single();
 
@@ -459,20 +555,32 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         setTutteLeImpreseDB(prev => [...prev, data]);
         const cached = (await getCachedData<Impresa[]>(OFFLINE_KEYS.IMPRESE)) || [];
         await setCachedData(OFFLINE_KEYS.IMPRESE, [...cached, data]);
+        if (cantiereAttivo) {
+          await associaImpresaACantiere(cantiereAttivo, data.id, [...tutteLeImpreseDB, data], sopralluoghi);
+        }
         aggiungiImpresaPresente(nome, 'appalto');
         setNuovaImpresaNome('');
+        setNuovaEmail('');
         setMostraAddImpresa(false);
       } else {
         // Fallback locale in caso di errore server/rete
         setTutteLeImpreseDB(prev => [...prev, nuovaLocale]);
+        if (cantiereAttivo) {
+          await associaImpresaACantiere(cantiereAttivo, nuovaLocale.id, [...tutteLeImpreseDB, nuovaLocale], sopralluoghi);
+        }
         aggiungiImpresaPresente(nome, 'appalto');
         setNuovaImpresaNome('');
+        setNuovaEmail('');
         setMostraAddImpresa(false);
       }
     } catch {
       setTutteLeImpreseDB(prev => [...prev, nuovaLocale]);
+      if (cantiereAttivo) {
+        await associaImpresaACantiere(cantiereAttivo, nuovaLocale.id, [...tutteLeImpreseDB, nuovaLocale], sopralluoghi);
+      }
       aggiungiImpresaPresente(nome, 'appalto');
       setNuovaImpresaNome('');
+      setNuovaEmail('');
       setMostraAddImpresa(false);
     }
   };
@@ -538,8 +646,10 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         compressedByRilievo[ril.id] = [];
 
         for (const file of fileList) {
-          const fileCompresso = await compressImage(file, 200);
-          const rawName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+          const fileCompresso = await compressImage(file, 100);
+          const isWebp = fileCompresso.type === 'image/webp';
+          const ext = isWebp ? 'webp' : 'jpg';
+          const rawName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
           const fileName = sanitizeStoragePath(rawName);
           const path = sanitizeStoragePath(`sopralluoghi/${cleanCantiere}/${fileName}`);
 
@@ -567,39 +677,56 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       const rilieviBase: RilievoItem[] = rilievi.map(ril => ({
         id: ril.id,
         descrizione: ril.descrizione,
+        ambiente: ril.ambiente || undefined,
+        quote_note: ril.quote_note || undefined,
+        misura_1: ril.misura_1 || undefined,
+        misura_2: ril.misura_2 || undefined,
+        misura_3: ril.misura_3 || undefined,
         foto_urls: (ril.foto_urls || []).filter(u => !u.startsWith('blob:'))
       }));
 
       const basePayload = {
         cantiere_id: cantiereId,
+        tipo_verbale: tipoVerbale,
         data: dataSopralluogo,
         ora: oraSopralluogo,
-        lavorazioni_in_corso: lavorazioniSintetiche,
-        fasi_lavoro: fasiLavoro,
-        imprese_presenti: arrayStringheImpresePresenti,
-        imprese_dettaglio: impresePresentiLista,
+        lavorazioni_in_corso: lavorazioniSintetiche || '',
+        fasi_lavoro: fasiLavoro || [],
+        imprese_presenti: arrayStringheImpresePresenti || [],
+        imprese_dettaglio: impresePresentiLista || [],
         presenze: presenze,
-        dispositivi_apprestamenti: dispositivi,
-        argomenti_discussi: argomentiDiscussi,
+        dispositivi_apprestamenti: dispositivi || [],
+        argomenti_discussi: argomentiDiscussi || '',
         rilievi: rilieviBase,
-        prescrizioni_lista: prescrizioni,
-        sospensione_lavori: sospensione,
-        motivo_sospensione: sospensione ? motivoSospensione : null,
+        prescrizioni_lista: prescrizioni || [],
+        sospensione_lavori: Boolean(sospensione),
+        motivo_sospensione: (sospensione && motivoSospensione) ? motivoSospensione : null,
+        condizioni_meteo: condizioniMeteo || null,
+        ordini_servizio: ordiniServizio || null,
+        operai_totali: operaiTotali ?? null,
+        note_tecniche: noteTecniche || null,
       };
 
       const isCurrentlyOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
       const isRealEdit = isUUID(sopralluogoToEdit?.id);
       const persistentId = isRealEdit ? sopralluogoToEdit?.id : undefined;
 
+      // Determina ID temporaneo offline o persistente
+      const tempId = (isRealEdit && sopralluogoToEdit?.id)
+        ? sopralluogoToEdit.id
+        : (sopralluogoToEdit?.id && sopralluogoToEdit.id.startsWith('pending_'))
+          ? sopralluogoToEdit.id
+          : `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
       // MODALITÀ OFFLINE ESPLICITA
       if (!isCurrentlyOnline) {
-        const tempId = sopralluogoToEdit?.id || `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         await savePendingSopralluogo({
           tempId,
           sopralluogoId: persistentId,
           cantiere_id: cantiereId,
           payload: {
             ...basePayload,
+            tipo_verbale: tipoVerbale,
             id: tempId,
           },
           pendingFotos: pendingFotosToSave,
@@ -633,10 +760,11 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
           const stagedList = compressedByRilievo[ril.id] || [];
 
           for (const item of stagedList) {
+            const isWebp = item.path.toLowerCase().endsWith('.webp');
             const { error: upErr } = await supabase.storage
               .from('foto-sopralluoghi')
               .upload(item.path, item.blob, {
-                contentType: 'image/jpeg',
+                contentType: isWebp ? 'image/webp' : 'image/jpeg',
                 upsert: true
               });
 
@@ -651,12 +779,18 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
           rilieviFinali.push({
             id: ril.id,
             descrizione: ril.descrizione,
+            ambiente: ril.ambiente || undefined,
+            quote_note: ril.quote_note || undefined,
+            misura_1: ril.misura_1 || undefined,
+            misura_2: ril.misura_2 || undefined,
+            misura_3: ril.misura_3 || undefined,
             foto_urls: uploadedUrls,
           });
         }
 
         const cloudPayload = {
           ...basePayload,
+          tipo_verbale: tipoVerbale,
           rilievi: rilieviFinali,
         };
 
@@ -677,14 +811,21 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         onSuccess();
         onClose();
       } catch (cloudErr: any) {
-        console.warn('Errore salvataggio cloud, fallback automatico su coda offline:', cloudErr);
-        const tempId = sopralluogoToEdit?.id || `pending_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        console.error('[ModalSopralluogo] Errore salvataggio cloud:', {
+          message: cloudErr?.message,
+          details: cloudErr?.details,
+          hint: cloudErr?.hint,
+          code: cloudErr?.code,
+          raw: cloudErr,
+        });
+
         await savePendingSopralluogo({
           tempId,
           sopralluogoId: persistentId,
           cantiere_id: cantiereId,
           payload: {
             ...basePayload,
+            tipo_verbale: tipoVerbale,
             id: tempId,
           },
           pendingFotos: pendingFotosToSave,
@@ -694,7 +835,16 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
           updatedAt: new Date().toISOString(),
         });
 
-        alert('Connessione al server instabile o assente.\n\nNessun dato è andato perso: il verbale e le foto sono stati salvati in locale su questo dispositivo e verranno sincronizzati al ritorno della linea.');
+        const isSchemaError = cloudErr?.code === '42703' || 
+          cloudErr?.message?.toLowerCase().includes('column') || 
+          cloudErr?.message?.toLowerCase().includes('schema');
+
+        if (isSchemaError) {
+          alert(`Attenzione: Salvataggio su database cloud non riuscito a causa dello schema delle tabelle:\n"${cloudErr.message}"\n\nAssicurati di aver eseguito lo script SQL di migrazione su Supabase per aggiungere tutte le colonne.\n\nIl verbale è stato comunque salvato localmente sul dispositivo.`);
+        } else {
+          alert('Connessione cloud non disponibile o errore di rete.\n\nIl verbale è stato salvato in sicurezza sul dispositivo e verrà sincronizzato automaticamente al rientro online.');
+        }
+
         onSuccess();
         onClose();
       }
@@ -705,6 +855,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   };
 
+  const isEditMode = Boolean(sopralluogoToEdit && sopralluogoToEdit.id);
+
   return (
     <>
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
@@ -713,14 +865,24 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
           {/* Header Modale */}
           <div className="p-4 sm:p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950/70 sticky top-0 z-10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
-                <ClipboardCheck className="w-5 h-5" />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                tipoVerbale === 'DL' 
+                  ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' 
+                  : tipoVerbale === 'RILIEVO'
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                    : 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+              }`}>
+                {tipoVerbale === 'DL' ? <Compass className="w-5 h-5" /> : tipoVerbale === 'RILIEVO' ? <Camera className="w-5 h-5" /> : <ClipboardCheck className="w-5 h-5" />}
               </div>
               <div>
                 <h2 className="font-bold text-white text-base sm:text-lg">
-                  {sopralluogoToEdit ? 'Modifica Verbale di Sopralluogo CSE' : 'Nuovo Verbale di Sopralluogo e Coordinamento'}
+                  {isEditMode 
+                    ? `Modifica ${tipoVerbale === 'DL' ? 'Verbale Direzione Lavori' : tipoVerbale === 'RILIEVO' ? 'Sopralluogo/Rilievo' : 'Verbale Sopralluogo CSE'}` 
+                    : `Nuovo ${tipoVerbale === 'DL' ? 'Verbale Direzione Lavori (DL)' : tipoVerbale === 'RILIEVO' ? 'Sopralluogo/Rilievo' : 'Verbale di Sopralluogo CSE'}`}
                 </h2>
-                <p className="text-xs text-slate-400">Arch. Michele Cavalleri &bull; D.Lgs. 81/08</p>
+                <p className="text-xs text-slate-400">
+                  {tipoVerbale === 'DL' ? 'Direzione dei Lavori & Avanzamento Opere' : tipoVerbale === 'RILIEVO' ? 'Rilievo Fotografico & Misure di Cantiere' : 'Arch. Michele Cavalleri &bull; Coordinamento Sicurezza D.Lgs. 81/08'}
+                </p>
               </div>
             </div>
 
@@ -732,7 +894,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 title="Vedi l'anteprima del verbale impaginato prima di salvare"
               >
                 <Eye className="w-4 h-4 text-amber-400" />
-                <span className="hidden sm:inline">Anteprima PDF</span>
+                <span>Anteprima PDF</span>
               </button>
 
               <button 
@@ -749,6 +911,126 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
           </div>
 
           <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1 text-slate-200">
+            
+            {/* SELETTORE TIPOLOGIA ATTO (CSE | DL | RILIEVO) */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-amber-500" />
+                  Ruolo / Tipologia Verbale:
+                </label>
+                {isEditMode && (
+                  <div className="flex items-center gap-2">
+                    {!isTipoUnlocked ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsTipoUnlocked(true)}
+                        className="text-[11px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30 font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                        title="Clicca per sbloccare la tipologia e passare a DL, CSE o Rilievo"
+                      >
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Sblocca tipologia</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                        <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Tipologia sbloccata</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsTipoUnlocked(false)}
+                          className="text-[11px] text-slate-400 hover:text-slate-200 underline cursor-pointer ml-1"
+                          title="Riblocca la tipologia per evitare cambi accidentali"
+                        >
+                          Riblocca
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {isEditMode && isTipoUnlocked && (
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center gap-2 animate-in fade-in duration-200">
+                  <Unlock className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    <strong>Cambio tipologia abilitato:</strong> puoi selezionare un nuovo ruolo per questo verbale. I dati delle altre sezioni non verranno cancellati e resteranno conservati.
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* Opzione CSE */}
+                <button
+                  type="button"
+                  disabled={isEditMode && !isTipoUnlocked}
+                  onClick={() => setTipoVerbale('CSE')}
+                  title={isEditMode && !isTipoUnlocked ? "Tipologia bloccata. Clicca su 'Sblocca tipologia' per modificarla." : undefined}
+                  className={`p-3 rounded-xl border text-left transition flex items-start gap-3 ${
+                    isEditMode && !isTipoUnlocked ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'
+                  } ${
+                    tipoVerbale === 'CSE'
+                      ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm shadow-amber-500/10'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${tipoVerbale === 'CSE' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400'}`}>
+                    <HardHat className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-xs uppercase tracking-wide">CSE - Sicurezza</div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">Coordinamento, apprestamenti & prescrizioni (D.Lgs. 81/08)</p>
+                  </div>
+                </button>
+
+                {/* Opzione DL */}
+                <button
+                  type="button"
+                  disabled={isEditMode && !isTipoUnlocked}
+                  onClick={() => setTipoVerbale('DL')}
+                  title={isEditMode && !isTipoUnlocked ? "Tipologia bloccata. Clicca su 'Sblocca tipologia' per modificarla." : undefined}
+                  className={`p-3 rounded-xl border text-left transition flex items-start gap-3 ${
+                    isEditMode && !isTipoUnlocked ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'
+                  } ${
+                    tipoVerbale === 'DL'
+                      ? 'bg-blue-500/15 border-blue-500 text-white shadow-sm shadow-blue-500/10'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${tipoVerbale === 'DL' ? 'bg-blue-500 text-white font-bold' : 'bg-slate-800 text-slate-400'}`}>
+                    <Compass className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-xs uppercase tracking-wide">Direzione Lavori (DL)</div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">Avanzamento opere, meteo, maestranze & Ordini di Servizio</p>
+                  </div>
+                </button>
+
+                {/* Opzione RILIEVO */}
+                <button
+                  type="button"
+                  disabled={isEditMode && !isTipoUnlocked}
+                  onClick={() => setTipoVerbale('RILIEVO')}
+                  title={isEditMode && !isTipoUnlocked ? "Tipologia bloccata. Clicca su 'Sblocca tipologia' per modificarla." : undefined}
+                  className={`p-3 rounded-xl border text-left transition flex items-start gap-3 ${
+                    isEditMode && !isTipoUnlocked ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'
+                  } ${
+                    tipoVerbale === 'RILIEVO'
+                      ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-sm shadow-emerald-500/10'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${tipoVerbale === 'RILIEVO' ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400'}`}>
+                    <Camera className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-xs uppercase tracking-wide">Sopralluogo / Rilievo</div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">Fascicolo fotografico per ambiente, quote e misure dimensionali</p>
+                  </div>
+                </button>
+              </div>
+            </div>
             
             {/* Cantiere, Data e Ora */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -803,14 +1085,80 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             </div>
 
+            {/* SEZIONE CONDIZIONI METEO (SPECIFICA PER DL) */}
+            {tipoVerbale === 'DL' && (
+              <div className="bg-slate-950/60 border border-blue-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <label className="font-bold uppercase tracking-wider text-blue-400 text-xs flex items-center gap-1.5">
+                    <CloudSun className="w-4 h-4 text-blue-400" />
+                    Condizioni Meteo & Operatività Cantiere
+                  </label>
+                  <span className="text-xs text-slate-400">Accertamento climatico per il giornale dei lavori</span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Sereno - Cantiere regolarmente operativo',
+                    'Nuvoloso - Operativo',
+                    'Pioggia - Sospese lavorazioni esterne',
+                    'Vento Forte - Sospesi lavori in quota',
+                    'Gelo / Neve - Cantiere fermo'
+                  ].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setCondizioniMeteo(m)}
+                      className={`text-xs px-2.5 py-1.5 rounded-lg border transition cursor-pointer ${
+                        condizioniMeteo.startsWith(m.split(' - ')[0])
+                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 font-semibold'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      {m.split(' - ')[0]}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Note meteo specifiche (es. Temperatura 14°C, asciutto, terreno praticabile)..."
+                  value={condizioniMeteo}
+                  onChange={(e) => setCondizioniMeteo(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            )}
+
+            {/* NOTE GENERALI / FINALITÀ (SPECIFICA PER RILIEVO) */}
+            {tipoVerbale === 'RILIEVO' && (
+              <div className="bg-slate-950/60 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
+                <label className="font-bold uppercase tracking-wider text-emerald-400 text-xs flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-emerald-400" />
+                  Note Generali & Finalità del Rilievo Tecnico
+                </label>
+                <p className="text-xs text-slate-400">
+                  Specifica la finalità (es. Stato di consistenza, SAL contabilità, accertamento difformità, rilievo strutturale/impiantistico).
+                </p>
+                <textarea
+                  rows={3}
+                  placeholder="Inserisci le premesse tecniche del rilievo, gli strumenti di misura impiegati..."
+                  value={noteTecniche}
+                  onChange={(e) => setNoteTecniche(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none leading-relaxed"
+                />
+              </div>
+            )}
+
             {/* SOGGETTI CONVENUTI */}
             <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-4">
               <div>
                 <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-amber-500" />
-                  Soggetti Convenuti e Presenti alla Riunione
+                  Soggetti Convenuti e Presenti {tipoVerbale === 'RILIEVO' ? 'al Sopralluogo' : 'alla Riunione'}
                 </label>
-                <span className="text-xs text-slate-500">Spunta le figure presenti e specifica per ciascuna impresa se opera in Appalto o Subappalto</span>
+                <span className="text-xs text-slate-500">
+                  {tipoVerbale === 'RILIEVO' ? 'Spunta le figure presenti alle operazioni di rilievo' : 'Spunta le figure presenti e specifica per ciascuna impresa se opera in Appalto o Subappalto'}
+                </span>
               </div>
 
               {/* Figure Principali (Committente, DL, Progettista, CSE) */}
@@ -919,16 +1267,17 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 </div>
               </div>
 
-              {/* 5. GESTIONE IMPRESE: CROCETTA + SCELTA APPALTO / SUBAPPALTO + RIORDINO */}
-              <div className="space-y-3 pt-1">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <span className="font-bold text-slate-200 text-xs uppercase tracking-wider">
-                    5. Imprese ed Esecutori Presenti Oggi ({impresePresentiLista.length})
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    Scegli <strong className="text-amber-400">Appalto</strong> o <strong className="text-amber-400">Subappalto</strong> per ciascuna e ordina con le frecce
-                  </span>
-                </div>
+              {/* 5. GESTIONE IMPRESE: CROCETTA + SCELTA APPALTO / SUBAPPALTO + RIORDINO (NON RICHIESTO PER RILIEVO) */}
+              {tipoVerbale !== 'RILIEVO' && (
+                <div className="space-y-3 pt-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="font-bold text-slate-200 text-xs uppercase tracking-wider">
+                      5. Imprese ed Esecutori Presenti Oggi ({impresePresentiLista.length})
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Scegli <strong className="text-amber-400">Appalto</strong> o <strong className="text-amber-400">Subappalto</strong> per ciascuna e ordina con le frecce
+                    </span>
+                  </div>
 
                 {/* ELENCO DELLE IMPRESE PRESENTI */}
                 {impresePresentiLista.length === 0 ? (
@@ -983,8 +1332,22 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                           </div>
                         </div>
 
-                        {/* SELETTORE RUOLO NEL CANTIERE (APPALTO / SUBAPPALTO) */}
-                        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                        {/* SELETTORE RUOLO NEL CANTIERE (APPALTO / SUBAPPALTO) + OPERAI SE DL */}
+                        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
+                          {tipoVerbale === 'DL' && (
+                            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs">
+                              <span className="text-slate-400 text-[11px]">Operai:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="N°"
+                                value={item.operai_presenti ?? ''}
+                                onChange={(e) => updateOperaiImpresa(item.nome, e.target.value ? Number(e.target.value) : undefined)}
+                                className="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-center text-white font-mono text-xs focus:outline-none focus:border-blue-400"
+                              />
+                            </div>
+                          )}
+
                           <select
                             value={item.ruolo_cantiere}
                             onChange={(e) => updateRuoloCantiere(item.nome, e.target.value as RuoloCantiere)}
@@ -1035,18 +1398,18 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   </div>
                 )}
 
-                {/* AGGIUNGI DA ARCHIVIO O CREA NUOVA */}
+                {/* ASSOCIA DA ARCHIVIO O CREA NUOVA */}
                 <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <select
                     value=""
                     onChange={(e) => {
                       if (e.target.value) {
-                        aggiungiImpresaPresente(e.target.value, 'appalto');
+                        handleAssociaImpresaDallArchivio(e.target.value);
                       }
                     }}
                     className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none cursor-pointer"
                   >
-                    <option value="">+ Aggiungi da Archivio Generale...</option>
+                    <option value="">+ Associa impresa dall'archivio al cantiere...</option>
                     {altreImpreseArchivioGenerale.map(imp => (
                       <option key={imp.id} value={imp.ragione_sociale}>
                         {imp.ragione_sociale} {imp.tipo === 'lavoratore_autonomo' ? '(Lav. Autonomo)' : ''}
@@ -1067,37 +1430,48 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 {/* Form nuovo soggetto */}
                 {mostraAddImpresa && (
                   <div className="p-3 bg-slate-900 border border-amber-500/30 rounded-xl space-y-2 mt-1">
-                    <span className="text-slate-300 font-bold text-xs block">Inserisci nuovo soggetto:</span>
-                    <div className="flex flex-col sm:flex-row gap-2">
+                    <span className="text-slate-300 font-bold text-xs block">Inserisci nuovo soggetto (verrà associato al cantiere):</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input
                         type="text"
                         placeholder="Ragione Sociale o Nominativo..."
                         value={nuovaImpresaNome}
                         onChange={(e) => setNuovaImpresaNome(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                        className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
                       />
-                      <select
-                        value={nuovoTipo}
-                        onChange={(e) => setNuovoTipo(e.target.value as TipoSoggetto)}
-                        className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white"
-                      >
-                        <option value="impresa">Impresa</option>
-                        <option value="lavoratore_autonomo">Lavoratore Autonomo</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={handleVerificaECreaNuovaImpresa}
-                        className="px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg cursor-pointer text-xs shrink-0"
-                      >
-                        Salva e Includi
-                      </button>
+                      <input
+                        type="email"
+                        placeholder="Email (opzionale)..."
+                        value={nuovaEmail}
+                        onChange={(e) => setNuovaEmail(e.target.value)}
+                        className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={nuovoTipo}
+                          onChange={(e) => setNuovoTipo(e.target.value as TipoSoggetto)}
+                          className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white flex-1"
+                        >
+                          <option value="impresa">Impresa</option>
+                          <option value="lavoratore_autonomo">Lavoratore Autonomo</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleVerificaECreaNuovaImpresa}
+                          className="px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg cursor-pointer text-xs shrink-0"
+                        >
+                          Salva e Includi
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
-            </div>
+            )}
+          </div>
 
-            {/* FASI DI LAVORO */}
+          {/* FASI DI LAVORO (NON RICHIESTO PER RILIEVO) */}
+          {tipoVerbale !== 'RILIEVO' && (
             <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <div>
@@ -1155,11 +1529,18 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                       className="w-full sm:w-60 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-amber-500 focus:outline-none"
                     >
                       <option value="">-- Seleziona Soggetto --</option>
-                      {tutteLeImpreseDB.map(imp => (
+                      {impreseAssociateAlCantiere.map(imp => (
                         <option key={imp.id} value={imp.ragione_sociale}>
-                          {imp.ragione_sociale}
+                          {imp.ragione_sociale} {imp.tipo === 'lavoratore_autonomo' ? '(Lav. Autonomo)' : ''}
                         </option>
                       ))}
+                      {impresePresentiLista
+                        .filter(p => !impreseAssociateAlCantiere.some(a => a.ragione_sociale === p.nome))
+                        .map(p => (
+                          <option key={p.nome} value={p.nome}>
+                            {p.nome} (Presente nel verbale)
+                          </option>
+                        ))}
                     </select>
 
                     {fasiLavoro.length > 1 && (
@@ -1175,98 +1556,123 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 ))}
               </div>
             </div>
+          )}
 
-            {/* DISPOSITIVI E APPRESTAMENTI */}
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <div>
-                  <span className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
-                    <CheckSquare className="w-4 h-4 text-amber-500" />
-                    Verifica ai Dispositivi e Apprestamenti
-                  </span>
-                  <p className="text-slate-400 text-xs">Seleziona i dispositivi controllati e inserisci le relative note</p>
+          {/* DISPOSITIVI E APPRESTAMENTI (SOLO CSE) */}
+            {tipoVerbale === 'CSE' && (
+              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
+                      <CheckSquare className="w-4 h-4 text-amber-500" />
+                      Verifica ai Dispositivi e Apprestamenti
+                    </span>
+                    <p className="text-slate-400 text-xs">Seleziona i dispositivi controllati e inserisci le relative note</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addAltroDispositivo}
+                    className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> + Aggiungi ALTRO
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={addAltroDispositivo}
-                  className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer text-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" /> + Aggiungi ALTRO
-                </button>
-              </div>
+                <div className="space-y-2 pt-1">
+                  {dispositivi.map((disp, idx) => {
+                    const isCustom = !DISPOSITIVI_PREDEFINITI.includes(disp.nome);
+                    return (
+                      <div key={disp.id || idx} className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
+                        <div className="flex justify-between items-center">
+                          <div 
+                            onClick={() => toggleDispositivo(idx)}
+                            className="flex items-center gap-2.5 cursor-pointer select-none text-slate-200 hover:text-white font-medium text-sm"
+                          >
+                            {disp.selezionato ? (
+                              <CheckSquare className="w-4 h-4 text-emerald-400" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-500" />
+                            )}
 
-              <div className="space-y-2 pt-1">
-                {dispositivi.map((disp, idx) => {
-                  const isCustom = !DISPOSITIVI_PREDEFINITI.includes(disp.nome);
-                  return (
-                    <div key={disp.id || idx} className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
-                      <div className="flex justify-between items-center">
-                        <div 
-                          onClick={() => toggleDispositivo(idx)}
-                          className="flex items-center gap-2.5 cursor-pointer select-none text-slate-200 hover:text-white font-medium text-sm"
-                        >
-                          {disp.selezionato ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-400" />
-                          ) : (
-                            <Square className="w-4 h-4 text-slate-500" />
-                          )}
+                            {isCustom ? (
+                              <input
+                                type="text"
+                                placeholder="Nome apprestamento (es. Gru, Quadro elettrico...)"
+                                value={disp.nome}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => updateNomeDispositivo(idx, e.target.value)}
+                                className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-amber-400 font-bold text-xs"
+                              />
+                            ) : (
+                              <span className={disp.selezionato ? 'text-amber-400 font-bold' : ''}>
+                                {disp.nome}
+                              </span>
+                            )}
+                          </div>
 
-                          {isCustom ? (
-                            <input
-                              type="text"
-                              placeholder="Nome apprestamento (es. Gru, Quadro elettrico...)"
-                              value={disp.nome}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => updateNomeDispositivo(idx, e.target.value)}
-                              className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-amber-400 font-bold text-xs"
-                            />
-                          ) : (
-                            <span className={disp.selezionato ? 'text-amber-400 font-bold' : ''}>
-                              {disp.nome}
-                            </span>
+                          {isCustom && (
+                            <button
+                              type="button"
+                              onClick={() => removeDispositivoCustom(idx)}
+                              className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
 
-                        {isCustom && (
-                          <button
-                            type="button"
-                            onClick={() => removeDispositivoCustom(idx)}
-                            className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        {disp.selezionato && (
+                          <input
+                            type="text"
+                            placeholder={`Note e verifiche per ${disp.nome.toLowerCase()}...`}
+                            value={disp.note || ''}
+                            onChange={(e) => updateNotaDispositivo(idx, e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                          />
                         )}
                       </div>
-
-                      {disp.selezionato && (
-                        <input
-                          type="text"
-                          placeholder={`Note e verifiche per ${disp.nome.toLowerCase()}...`}
-                          value={disp.note || ''}
-                          onChange={(e) => updateNotaDispositivo(idx, e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* ARGOMENTI DISCUSSI */}
-            <div className="space-y-1.5">
-              <label className="block font-semibold text-slate-200 text-xs sm:text-sm">
-                Nel Corso della Riunione Sono Stati Discussi i Seguenti Argomenti:
-              </label>
-              <textarea
-                rows={5}
-                value={argomentiDiscussi}
-                onChange={(e) => setArgomentiDiscussi(e.target.value)}
-                placeholder="Inserisci dettagliatamente gli argomenti trattati, le interferenze concordate, prescrizioni PSC..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-sm sm:text-base leading-relaxed text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none shadow-inner"
-              />
-            </div>
+            {/* ARGOMENTI DISCUSSI (SOLO CSE) */}
+            {tipoVerbale === 'CSE' && (
+              <div className="space-y-1.5">
+                <label className="block font-semibold text-slate-200 text-xs sm:text-sm">
+                  Nel Corso della Riunione Sono Stati Discussi i Seguenti Argomenti:
+                </label>
+                <textarea
+                  rows={4}
+                  value={argomentiDiscussi}
+                  onChange={(e) => setArgomentiDiscussi(e.target.value)}
+                  placeholder="Inserisci dettagliatamente gli argomenti trattati, le interferenze concordate, prescrizioni PSC..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-sm sm:text-base leading-relaxed text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none shadow-inner"
+                />
+              </div>
+            )}
+
+            {/* ORDINI DI SERVIZIO E DISPOSIZIONI DL (SOLO DL) */}
+            {tipoVerbale === 'DL' && (
+              <div className="bg-slate-950/60 border border-blue-500/30 rounded-xl p-4 space-y-2.5">
+                <label className="font-bold uppercase tracking-wider text-blue-400 text-xs flex items-center gap-1.5">
+                  <ScrollText className="w-4 h-4 text-blue-400" />
+                  Ordini di Servizio & Disposizioni della Direzione Lavori
+                </label>
+                <p className="text-xs text-slate-400">
+                  Prescrizioni operative all'appaltatore, verifica tracciamenti, campionature materiali, conformità al progetto approvato e rispetto del cronoprogramma.
+                </p>
+                <textarea
+                  rows={4}
+                  placeholder="Inserisci disposizioni operative della D.L., ordini di servizio, richiami agli elaborati contrattuali..."
+                  value={ordiniServizio}
+                  onChange={(e) => setOrdiniServizio(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none leading-relaxed"
+                />
+              </div>
+            )}
 
             {/* RILIEVI VISIVI E FOTO */}
             <div className="space-y-3">
@@ -1274,7 +1680,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 <div>
                   <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
                     <Camera className="w-4 h-4 text-amber-500" />
-                    Rilievi Visivi & Foto di Cantiere
+                    {tipoVerbale === 'RILIEVO' ? 'Rilievo fotografico' : 'Rilievi Visivi & Foto di Cantiere'}
                   </label>
                   <span className="text-xs text-slate-500">I nuovi rilievi compaiono in cima. Usa le frecce per riordinarli.</span>
                 </div>
@@ -1319,12 +1725,102 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     )}
                   </div>
 
+                  {tipoVerbale === 'RILIEVO' ? (
+                    <div className="space-y-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-400 mb-1 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-amber-500" />
+                          Ambiente / Piano / Posizione
+                        </label>
+                        <input
+                          type="text"
+                          value={ril.ambiente || ''}
+                          onChange={(e) => updateRilievoAmbiente(ril.id, e.target.value)}
+                          placeholder="Es. Piano Terra - Locale Tecnico, Prospetto Sud..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Tre campi misure opzionali */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div>
+                          <label className="text-[11px] font-semibold text-emerald-400 mb-1 flex items-center gap-1">
+                            <Maximize2 className="w-3 h-3 text-emerald-400" />
+                            Misura 1 (opzionale)
+                          </label>
+                          <input
+                            type="text"
+                            value={ril.misura_1 || ''}
+                            onChange={(e) => updateRilievoMisura(ril.id, 'misura_1', e.target.value)}
+                            placeholder="Es. L=3.50m o H=2.70m"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-emerald-400 mb-1 flex items-center gap-1">
+                            <Maximize2 className="w-3 h-3 text-emerald-400" />
+                            Misura 2 (opzionale)
+                          </label>
+                          <input
+                            type="text"
+                            value={ril.misura_2 || ''}
+                            onChange={(e) => updateRilievoMisura(ril.id, 'misura_2', e.target.value)}
+                            placeholder="Es. Spessore=30cm"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-emerald-400 mb-1 flex items-center gap-1">
+                            <Maximize2 className="w-3 h-3 text-emerald-400" />
+                            Misura 3 (opzionale)
+                          </label>
+                          <input
+                            type="text"
+                            value={ril.misura_3 || ''}
+                            onChange={(e) => updateRilievoMisura(ril.id, 'misura_3', e.target.value)}
+                            placeholder="Es. Quota +1.20m s.l.m."
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-400 mb-1 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-amber-500" />
+                          Ambiente / Piano / Posizione
+                        </label>
+                        <input
+                          type="text"
+                          value={ril.ambiente || ''}
+                          onChange={(e) => updateRilievoAmbiente(ril.id, e.target.value)}
+                          placeholder="Es. Piano Terra - Locale Tecnico, Prospetto Sud..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-400 mb-1 flex items-center gap-1">
+                          <Maximize2 className="w-3 h-3 text-emerald-400" />
+                          Quote / Misure / Note Tecniche
+                        </label>
+                        <input
+                          type="text"
+                          value={ril.quote_note || ''}
+                          onChange={(e) => updateRilievoQuote(ril.id, e.target.value)}
+                          placeholder="Es. H=2.70m, spessore solaio 25cm..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <textarea
                     rows={3}
-                    required
+                    required={tipoVerbale !== 'RILIEVO'}
                     value={ril.descrizione}
                     onChange={(e) => updateRilievoTesto(ril.id, e.target.value)}
-                    placeholder="Descrivi dettagliatamente l'osservazione o non conformità riscontrata..."
+                    placeholder={tipoVerbale === 'RILIEVO' ? "Note / descrizione del rilievo fotografico (opzionale)..." : "Descrivi dettagliatamente l'osservazione o non conformità riscontrata..."}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm sm:text-base leading-relaxed text-slate-100 focus:border-amber-500 focus:outline-none"
                   />
 
@@ -1373,147 +1869,140 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               ))}
             </div>
 
-            {/* PRESCRIZIONI */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <div>
-                  <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-amber-500" />
-                    Misure Prescrittive & Adeguamenti Richiesti
-                  </label>
-                  <span className="text-xs text-slate-500">Le nuove prescrizioni compaiono in cima. Usa le frecce per riordinarle.</span>
+            {/* PRESCRIZIONI (SOLO CSE) */}
+            {tipoVerbale === 'CSE' && (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4 text-amber-500" />
+                      Misure Prescrittive & Adeguamenti Richiesti
+                    </label>
+                    <span className="text-xs text-slate-500">Le nuove prescrizioni compaiono in cima. Usa le frecce per riordinarle.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addPrescrizione}
+                    className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20 text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> + Aggiungi Prescrizione
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={addPrescrizione}
-                  className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20 text-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" /> + Aggiungi Prescrizione
-                </button>
-              </div>
 
-              {prescrizioni.map((p, idx) => (
-                <div key={p.id} className="p-3.5 bg-slate-950/70 border border-amber-500/20 rounded-xl space-y-2.5">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        title="Sposta su"
-                        disabled={idx === 0}
-                        onClick={() => movePrescrizione(idx, 'up')}
-                        className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        <ArrowUp className="w-4 h-4" />
+                {prescrizioni.map((p, idx) => (
+                  <div key={p.id} className="p-3.5 bg-slate-950/70 border border-amber-500/20 rounded-xl space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          title="Sposta su"
+                          disabled={idx === 0}
+                          onClick={() => movePrescrizione(idx, 'up')}
+                          className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Sposta giù"
+                          disabled={idx === prescrizioni.length - 1}
+                          onClick={() => movePrescrizione(idx, 'down')}
+                          className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </button>
+                        <span className="font-semibold text-amber-400 ml-1.5 text-xs">Prescrizione #{idx + 1}</span>
+                      </div>
+
+                      <button type="button" onClick={() => removePrescrizione(p.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer p-1">
+                        <Trash2 className="w-4 h-4" />
                       </button>
-                      <button
-                        type="button"
-                        title="Sposta giù"
-                        disabled={idx === prescrizioni.length - 1}
-                        onClick={() => movePrescrizione(idx, 'down')}
-                        className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        <ArrowDown className="w-4 h-4" />
-                      </button>
-                      <span className="font-semibold text-amber-400 ml-1.5 text-xs">Prescrizione #{idx + 1}</span>
                     </div>
 
-                    <button type="button" onClick={() => removePrescrizione(p.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <input
-                    type="text"
-                    required
-                    placeholder="Disposizione prescrittiva..."
-                    value={p.testo}
-                    onChange={(e) => updatePrescrizione(p.id, 'testo', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
-                  />
-
-                  <div className="grid grid-cols-2 gap-2.5">
                     <input
                       type="text"
-                      placeholder="Impresa destinataria"
-                      value={p.impresa_destinataria || ''}
-                      onChange={(e) => updatePrescrizione(p.id, 'impresa_destinataria', e.target.value)}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
+                      required
+                      placeholder="Disposizione prescrittiva..."
+                      value={p.testo}
+                      onChange={(e) => updatePrescrizione(p.id, 'testo', e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
                     />
-                    <input
-                      type="date"
-                      value={p.data_scadenza || ''}
-                      onChange={(e) => updatePrescrizione(p.id, 'data_scadenza', e.target.value)}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
 
-            {/* Sospensione Lavori */}
-            <div className={`p-4 rounded-xl border ${
-              sospensione ? 'bg-rose-950/40 border-rose-500 text-rose-200' : 'bg-slate-950/40 border-slate-800 text-slate-400'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <AlertOctagon className={`w-5 h-5 ${sospensione ? 'text-rose-500' : 'text-slate-500'}`} />
-                  <div>
-                    <h4 className="font-bold text-white text-sm">Disponi Sospensione Lavori (Art. 92 c.1 lett. f)</h4>
-                    <p className="text-xs text-slate-400">Solo per pericolo grave ed imminente</p>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <input
+                        type="text"
+                        placeholder="Impresa destinataria"
+                        value={p.impresa_destinataria || ''}
+                        onChange={(e) => updatePrescrizione(p.id, 'impresa_destinataria', e.target.value)}
+                        className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
+                      />
+                      <input
+                        type="date"
+                        value={p.data_scadenza || ''}
+                        onChange={(e) => updatePrescrizione(p.id, 'data_scadenza', e.target.value)}
+                        className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
+                      />
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSospensione(!sospensione)}
-                  className={`px-3.5 py-2 rounded-lg font-bold text-xs cursor-pointer ${
-                    sospensione ? 'bg-rose-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  {sospensione ? 'SOSPENSIONE ATTIVA' : 'Sospendi Lavori'}
-                </button>
+                ))}
               </div>
-              {sospensione && (
-                <textarea
-                  required
-                  rows={3}
-                  placeholder="Motivazione del pericolo grave e imminente..."
-                  value={motivoSospensione}
-                  onChange={(e) => setMotivoSospensione(e.target.value)}
-                  className="w-full mt-3 bg-slate-950 border border-rose-500/40 rounded-xl p-3 text-sm text-white"
-                />
-              )}
-            </div>
+            )}
 
-            {/* Footer */}
-            <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky bottom-0 bg-slate-900 pb-1">
-              <button
-                type="button"
-                onClick={() => setIsPreviewOpen(true)}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold rounded-xl border border-amber-500/30 flex items-center gap-2 cursor-pointer transition text-xs"
-              >
-                <Eye className="w-4 h-4 text-amber-400" />
-                <span>Anteprima PDF dal Vivo</span>
+            {/* SOSPENSIONE LAVORI (SOLO CSE) */}
+            {tipoVerbale === 'CSE' && (
+              <div className={`p-4 rounded-xl border ${
+                sospensione ? 'bg-rose-950/40 border-rose-500 text-rose-200' : 'bg-slate-950/40 border-slate-800 text-slate-400'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <AlertOctagon className={`w-5 h-5 ${sospensione ? 'text-rose-500' : 'text-slate-500'}`} />
+                    <div>
+                      <h4 className="font-bold text-white text-sm">Disponi Sospensione Lavori (Art. 92 c.1 lett. f)</h4>
+                      <p className="text-xs text-slate-400">Solo per pericolo grave ed imminente</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSospensione(!sospensione)}
+                    className={`px-3.5 py-2 rounded-lg font-bold text-xs cursor-pointer ${
+                      sospensione ? 'bg-rose-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {sospensione ? 'SOSPENSIONE ATTIVA' : 'Sospendi Lavori'}
+                  </button>
+                </div>
+                {sospensione && (
+                  <textarea
+                    required
+                    rows={3}
+                    placeholder="Motivazione del pericolo grave e imminente..."
+                    value={motivoSospensione}
+                    onChange={(e) => setMotivoSospensione(e.target.value)}
+                    className="w-full mt-3 bg-slate-950 border border-rose-500/40 rounded-xl p-3 text-sm text-white"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Footer Azioni */}
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3 sticky bottom-0 bg-slate-900 pb-1">
+              <button type="button" onClick={onClose} className="px-4 py-2.5 text-sm text-slate-400 hover:text-white cursor-pointer">
+                Annulla
               </button>
-
-              <div className="flex items-center gap-3">
-                <button type="button" onClick={onClose} className="px-4 py-2.5 text-sm text-slate-400 hover:text-white cursor-pointer">
-                  Annulla
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 text-sm"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Salvataggio...</span>
-                    </>
-                  ) : (
-                    <span>{sopralluogoToEdit ? 'Aggiorna Verbale' : 'Registra Verbale CSE'}</span>
-                  )}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 text-sm"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Salvataggio...</span>
+                  </>
+                ) : (
+                  <span>{isEditMode ? 'Aggiorna Verbale' : `Registra Verbale ${tipoVerbale}`}</span>
+                )}
+              </button>
             </div>
 
           </form>
@@ -1577,7 +2066,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
           isOpen={isPreviewOpen}
           onClose={handleClosePreview}
           sopralluogo={verbaleInAnteprima}
-          cantiere={cantieri.find(c => c.id === cantiereId)}
+          cantiere={cantieri.find(c => c.id === cantiereId) || (cantieri.length > 0 ? cantieri[0] : undefined)}
         />
       )}
     </>

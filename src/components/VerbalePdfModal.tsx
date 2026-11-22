@@ -202,24 +202,51 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     updateSettingInDb('foto_height_cm', val);
   };
 
+  const tipo = sopralluogo.tipo_verbale || 'CSE';
+  const isCSE = tipo === 'CSE';
+  const isDL = tipo === 'DL';
+  const isRilievo = tipo === 'RILIEVO';
+
   const pres = sopralluogo.presenze;
-  const committentePres = pres?.committente?.presente;
+  const committentePres = Boolean(pres?.committente?.presente);
   const committenteNome = pres?.committente?.nome || cantiere?.committente;
-  const dlPres = pres?.dl?.presente;
-  const dlNome = pres?.dl?.nome || cantiere?.direttore_lavori;
-  const progettistaPres = pres?.progettista?.presente;
+
+  const dlPres = Boolean(pres?.dl?.presente);
+  const dlNome = pres?.dl?.nome || cantiere?.direttore_lavori || 'arch. Cavalleri Michele';
+
+  const progettistaPres = Boolean(pres?.progettista?.presente);
   const progettistaNome = pres?.progettista?.nome || cantiere?.progettista;
+
+  const csePres = Boolean(pres?.cse?.presente);
   const cseNome = pres?.cse?.nome || cantiere?.cse || 'arch. Cavalleri Michele';
 
   const fasiAttive = sopralluogo.fasi_lavoro && sopralluogo.fasi_lavoro.length > 0
-    ? sopralluogo.fasi_lavoro.filter(f => f.descrizione.trim())
+    ? sopralluogo.fasi_lavoro.filter(f => f.descrizione && f.descrizione.trim())
     : [];
 
-  const dispositiviAttivi = sopralluogo.dispositivi_apprestamenti || [];
+  const haLavorazioniInCorso = Boolean(sopralluogo.lavorazioni_in_corso && sopralluogo.lavorazioni_in_corso.trim());
 
-  const paragrafiArgomenti = sopralluogo.argomenti_discussi
+  const dispositiviSelezionati = isCSE && sopralluogo.dispositivi_apprestamenti
+    ? sopralluogo.dispositivi_apprestamenti.filter(d => d.selezionato)
+    : [];
+
+  const paragrafiArgomenti = isCSE && sopralluogo.argomenti_discussi
     ? sopralluogo.argomenti_discussi.split('\n').filter(p => p.trim())
     : [];
+
+  const prescrizioniValide = isCSE && sopralluogo.prescrizioni_lista
+    ? sopralluogo.prescrizioni_lista.filter(p => p.testo && p.testo.trim())
+    : [];
+
+  const rilieviValidi = (sopralluogo.rilievi || []).filter(r => 
+    (r.descrizione && r.descrizione.trim().length > 0) || 
+    (r.foto_urls && r.foto_urls.length > 0) ||
+    (r.ambiente && r.ambiente.trim().length > 0) ||
+    (r.misura_1 && r.misura_1.trim().length > 0) ||
+    (r.misura_2 && r.misura_2.trim().length > 0) ||
+    (r.misura_3 && r.misura_3.trim().length > 0) ||
+    (r.quote_note && r.quote_note.trim().length > 0)
+  );
 
   // UTILIZZO DI REACT PORTAL: il modale viene renderizzato direttamente in document.body
   // permettendo a @media print di nascondere #root al 100% (zero schermate web nel PDF!)
@@ -302,10 +329,10 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       `}</style>
 
       {/* ANTEPRIMA A MONITOR A SCHERMO INTERO */}
-      <div className="fixed inset-0 bg-slate-950/90 z-50 flex flex-col items-center overflow-y-auto print-modal-wrapper">
+      <div className="fixed inset-0 bg-slate-950/95 z-[9999] flex flex-col items-center overflow-y-auto print-modal-wrapper">
         
         {/* BARRA DEGLI STRUMENTI (Nascosta in stampa) */}
-        <header className="sticky top-0 left-0 right-0 z-50 w-full bg-slate-900 border-b border-slate-800 shadow-xl px-4 py-2.5 print-hidden backdrop-blur-md">
+        <header className="sticky top-0 left-0 right-0 z-[10000] w-full bg-slate-900 border-b border-slate-800 shadow-xl px-4 py-2.5 print-hidden backdrop-blur-md">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             
             <div className="flex flex-wrap items-center gap-2">
@@ -483,46 +510,99 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 2. TITOLO VERBALE */}
+            {/* 2. TITOLO VERBALE CALIBRATO SUL RUOLO */}
             <div className="text-center mb-5 avoid-break">
               <h1 className="text-base sm:text-lg font-black tracking-wide uppercase border-b-2 border-neutral-900 inline-block pb-1">
-                VERBALE DI SOPRALLUOGO E COORDINAMENTO
+                {isDL 
+                  ? 'Verbale di Sopralluogo della Direzione Lavori'
+                  : isRilievo
+                    ? 'Sopralluogo/Rilievo'
+                    : 'Verbale di Sopralluogo e Coordinamento della Sicurezza'}
               </h1>
+              <p className="text-[8.5pt] text-neutral-600 font-semibold uppercase tracking-wider mt-1">
+                {isDL
+                  ? 'Accertamento dello stato delle opere, andamento del cantiere e disposizioni di servizio'
+                  : isRilievo
+                    ? 'Documentazione dello stato dei luoghi, accertamenti dimensionali e rilievi visivi'
+                    : 'D.Lgs. 9 aprile 2008, n. 81 e s.m.i. - Art. 92'}
+              </p>
             </div>
 
             {/* 3. DATI CANTIERE */}
             <div className="grid grid-cols-2 gap-y-2 gap-x-6 text-[9.5pt] mb-5 bg-neutral-50 p-3.5 border border-neutral-300 rounded avoid-break">
               <div>
                 <span className="font-bold text-neutral-600 block text-[9pt]">Cantiere:</span>
-                <span className="font-bold text-neutral-900 text-[10.5pt]">{cantiere?.nome || 'N.D.'}</span>
-                <p className="text-[9pt] text-neutral-500 mt-0.5">{cantiere?.indirizzo}</p>
+                <span className="font-bold text-neutral-900 text-[10.5pt]">{cantiere?.nome || 'Cantiere'}</span>
+                {cantiere?.indirizzo && (
+                  <p className="text-[9pt] text-neutral-500 mt-0.5">{cantiere.indirizzo}</p>
+                )}
               </div>
               <div>
                 <span className="font-bold text-neutral-600 block text-[9pt]">Data:</span>
-                <span className="font-bold text-neutral-900">{sopralluogo.data}</span>
+                <span className="font-bold text-neutral-900">{sopralluogo.data || '—'}</span>
               </div>
-              <div>
-                <span className="font-bold text-neutral-600 block text-[9pt]">Committente:</span>
-                <span className="font-semibold text-neutral-900">{cantiere?.committente || 'N.D.'}</span>
-              </div>
-              <div>
-                <span className="font-bold text-neutral-600 block text-[9pt]">Ora:</span>
-                <span className="font-semibold text-neutral-900">{sopralluogo.ora || 'N.D.'}</span>
-              </div>
+              {cantiere?.committente && (
+                <div>
+                  <span className="font-bold text-neutral-600 block text-[9pt]">Committente:</span>
+                  <span className="font-semibold text-neutral-900">{cantiere.committente}</span>
+                </div>
+              )}
+              {sopralluogo.ora && (
+                <div>
+                  <span className="font-bold text-neutral-600 block text-[9pt]">Ora:</span>
+                  <span className="font-semibold text-neutral-900">{sopralluogo.ora}</span>
+                </div>
+              )}
             </div>
 
-            {/* 4. FORMULA NORMATIVA */}
+            {/* CONDIZIONI METEO (SPECIFICO DL - NASCOSTO SE VUOTO) */}
+            {isDL && sopralluogo.condizioni_meteo?.trim() && (
+              <div className="mb-4 p-2.5 bg-blue-50/60 border border-blue-200 rounded text-[9.5pt] avoid-break">
+                <span className="font-bold text-blue-900 uppercase text-[9pt] block mb-0.5">
+                  Condizioni Meteo & Operatività Cantiere:
+                </span>
+                <p className="text-neutral-800">{sopralluogo.condizioni_meteo}</p>
+              </div>
+            )}
+
+            {/* NOTE GENERALI RILIEVO (SPECIFICO RILIEVO - NASCOSTO SE VUOTO) */}
+            {isRilievo && sopralluogo.note_tecniche?.trim() && (
+              <div className="mb-4 p-2.5 bg-emerald-50/60 border border-emerald-200 rounded text-[9.5pt] avoid-break">
+                <span className="font-bold text-emerald-900 uppercase text-[9pt] block mb-0.5">
+                  Premesse e Finalità del Rilievo Tecnico:
+                </span>
+                <p className="text-neutral-800 whitespace-pre-wrap">{sopralluogo.note_tecniche}</p>
+              </div>
+            )}
+
+            {/* 4. FORMULA INTRODUTTIVA */}
             <p className="text-[9pt] text-neutral-700 italic mb-4 leading-normal avoid-break">
-              Al fine di promuovere il coordinamento, nonché di assicurare l'applicazione delle disposizioni contenute nel piano di sicurezza e coordinamento e delle relative procedure di lavoro sono convenute le seguenti persone:
+              {isDL
+                ? "In data odierna il Direttore dei Lavori ha effettuato il sopralluogo in cantiere alla presenza delle seguenti persone:"
+                : isRilievo
+                  ? "In data odierna sono state effettuate le operazioni di rilievo visivo e dimensionale con la presenza dei seguenti soggetti:"
+                  : "Al fine di promuovere il coordinamento, nonché di assicurare l'applicazione delle disposizioni contenute nel piano di sicurezza e coordinamento e delle relative procedure di lavoro ai sensi del D.Lgs. 81/2008 sono convenute le seguenti persone:"}
             </p>
 
-            {/* 5. SOGGETTI CONVENUTI (Committente -> DL -> Progettista -> CSE -> Imprese in 2 colonne) */}
+            {/* 5. SOGGETTI CONVENUTI (Calibrati per Ruolo: solo soggetti effettivamente presenti) */}
             <div className="space-y-1 text-[9.5pt] mb-5 pl-3 border-l-2 border-neutral-400 avoid-break">
+              {/* Ruolo Principale redattore */}
+              {isDL && (
+                <p><strong>Direttore dei Lavori (DL):</strong> {dlNome}</p>
+              )}
+              {isCSE && (
+                <p><strong>Coordinatore Sicurezza (CSE):</strong> {cseNome}</p>
+              )}
+              {isRilievo && (
+                <p><strong>Tecnico Incaricato del Rilievo:</strong> {cseNome || dlNome}</p>
+              )}
+
+              {/* Altri soggetti solo se presenti */}
               {committentePres && (
                 <p><strong>Committente:</strong> {committenteNome}</p>
               )}
 
-              {dlPres && (
+              {!isDL && dlPres && (
                 <p><strong>Direttore dei Lavori (DL):</strong> {dlNome}</p>
               )}
 
@@ -530,11 +610,16 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 <p><strong>Progettista:</strong> {progettistaNome}</p>
               )}
 
-              <p><strong>CSE:</strong> {cseNome}</p>
+              {!isCSE && csePres && (
+                <p><strong>Coordinatore Sicurezza (CSE):</strong> {cseNome}</p>
+              )}
 
-              <div className="pt-1">
-                <span className="font-bold block text-neutral-800 mb-0.5">Imprese ed Esecutori presenti:</span>
-                {sopralluogo.imprese_presenti && sopralluogo.imprese_presenti.length > 0 ? (
+              {/* Imprese ed esecutori presenti (nascosto se vuoto o se RILIEVO) */}
+              {!isRilievo && sopralluogo.imprese_presenti && sopralluogo.imprese_presenti.length > 0 && (
+                <div className="pt-1">
+                  <span className="font-bold block text-neutral-800 mb-0.5">
+                    {isDL ? 'Imprese e Maestranze presenti in cantiere:' : 'Imprese ed Esecutori presenti:'}
+                  </span>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-1">
                     {sopralluogo.imprese_presenti.map((impString, idx) => (
                       <div key={idx} className="truncate">
@@ -542,104 +627,106 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <span className="text-neutral-500 italic pl-1">Nessuna impresa annotata</span>
-                )}
-              </div>
-            </div>
-
-            {/* 6. FASI DI LAVORO (TITOLO VINCOLATO ALLA PRIMA LAVORAZIONE) */}
-            <div className="mb-5">
-              {fasiAttive.length > 0 ? (
-                <>
-                  <div className="avoid-break mb-1">
-                    <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
-                      Le fasi di lavoro in svolgimento alla data odierna sono:
-                    </h3>
-                    <div className="text-[9.5pt] pl-2">
-                      <span>&bull; {fasiAttive[0].descrizione}</span>
-                      {fasiAttive[0].impresa && (
-                        <span className="text-neutral-600 font-semibold ml-2">
-                          — {fasiAttive[0].impresa}
-                        </span>
-                      )}
+                  {isDL && sopralluogo.operai_totali ? (
+                    <div className="text-[9pt] font-semibold text-blue-900 mt-1 pl-1">
+                      Maestranze totali presenti: {sopralluogo.operai_totali} operai
                     </div>
-                  </div>
-
-                  {fasiAttive.slice(1).map((f, idx) => (
-                    <div key={f.id || idx + 1} className="text-[9.5pt] pl-2 mt-1 avoid-break">
-                      <span>&bull; {f.descrizione}</span>
-                      {f.impresa && (
-                        <span className="text-neutral-600 font-semibold ml-2">
-                          — {f.impresa}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div className="avoid-break">
-                  <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
-                    Le fasi di lavoro in svolgimento alla data odierna sono:
-                  </h3>
-                  <p className="text-[9.5pt] text-neutral-800 whitespace-pre-wrap pl-2 leading-relaxed">
-                    {sopralluogo.lavorazioni_in_corso || 'Nessuna fase specifica annotata.'}
-                  </p>
+                  ) : null}
                 </div>
               )}
             </div>
 
-            {/* 7. DISPOSITIVI E APPRESTAMENTI */}
-            <div className="mb-5">
-              {dispositiviAttivi.length > 0 ? (
-                <>
-                  <div className="avoid-break mb-1.5">
-                    <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
-                      Verifica ai dispositivi e apprestamenti:
-                    </h3>
-                    <div className="flex items-start gap-2 pl-2 text-[9.5pt]">
-                      <span className="font-mono text-sm leading-none">
-                        {dispositiviAttivi[0].selezionato ? '☒' : '☐'}
-                      </span>
-                      <div>
-                        <span className={`font-semibold ${dispositiviAttivi[0].selezionato ? 'text-neutral-900' : 'text-neutral-600'}`}>
-                          {dispositiviAttivi[0].nome}
-                        </span>
-                        {dispositiviAttivi[0].selezionato && dispositiviAttivi[0].note && (
-                          <span className="text-neutral-700 ml-2">&bull; {dispositiviAttivi[0].note}</span>
+            {/* 6. FASI DI LAVORO (NASCOSTO SE COMPLETAMENTE VUOTO O SE RILIEVO) */}
+            {!isRilievo && (fasiAttive.length > 0 || haLavorazioniInCorso) && (
+              <div className="mb-5">
+                {fasiAttive.length > 0 ? (
+                  <>
+                    <div className="avoid-break mb-1">
+                      <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
+                        {isDL
+                          ? 'Avanzamento opere e lavorazioni in corso:'
+                          : isRilievo
+                            ? 'Lavorazioni in svolgimento al momento del rilievo:'
+                            : 'Le fasi di lavoro in svolgimento alla data odierna sono:'}
+                      </h3>
+                      <div className="text-[9.5pt] pl-2">
+                        <span>&bull; {fasiAttive[0].descrizione}</span>
+                        {fasiAttive[0].impresa && (
+                          <span className="text-neutral-600 font-semibold ml-2">
+                            — {fasiAttive[0].impresa}
+                          </span>
                         )}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-1.5 text-[9.5pt]">
-                    {dispositiviAttivi.slice(1).map((disp, idx) => (
-                      <div key={disp.id || idx + 1} className="flex items-start gap-2 pl-2 avoid-break">
-                        <span className="font-mono text-sm leading-none">{disp.selezionato ? '☒' : '☐'}</span>
-                        <div>
-                          <span className={`font-semibold ${disp.selezionato ? 'text-neutral-900' : 'text-neutral-600'}`}>
-                            {disp.nome}
+                    {fasiAttive.slice(1).map((f, idx) => (
+                      <div key={f.id || idx + 1} className="text-[9.5pt] pl-2 mt-1 avoid-break">
+                        <span>&bull; {f.descrizione}</span>
+                        {f.impresa && (
+                          <span className="text-neutral-600 font-semibold ml-2">
+                            — {f.impresa}
                           </span>
-                          {disp.selezionato && disp.note && (
-                            <span className="text-neutral-700 ml-2">&bull; {disp.note}</span>
-                          )}
-                        </div>
+                        )}
                       </div>
                     ))}
+                  </>
+                ) : (
+                  <div className="avoid-break">
+                    <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
+                      {isDL
+                        ? 'Avanzamento opere e lavorazioni in corso:'
+                        : isRilievo
+                          ? 'Lavorazioni in svolgimento al momento del rilievo:'
+                          : 'Le fasi di lavoro in svolgimento alla data odierna sono:'}
+                    </h3>
+                    <p className="text-[9.5pt] text-neutral-800 whitespace-pre-wrap pl-2 leading-relaxed">
+                      {sopralluogo.lavorazioni_in_corso}
+                    </p>
                   </div>
-                </>
-              ) : (
-                <div className="avoid-break">
-                  <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
-                    Verifica ai dispositivi e apprestamenti:
-                  </h3>
-                  <p className="text-neutral-500 text-xs pl-2">Nessun apprestamento specifico verificato.</p>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
-            {/* 8. ARGOMENTI DISCUTI (FLUIDI) */}
-            {paragrafiArgomenti.length > 0 && (
+            {/* 7. DISPOSITIVI E APPRESTAMENTI (SOLO CSE - NASCOSTO SE NESSUNO SELEZIONATO) */}
+            {isCSE && dispositiviSelezionati.length > 0 && (
+              <div className="mb-5">
+                <div className="avoid-break mb-1.5">
+                  <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
+                    Verifica ai dispositivi e apprestamenti di sicurezza:
+                  </h3>
+                  <div className="flex items-start gap-2 pl-2 text-[9.5pt]">
+                    <span className="font-mono text-sm leading-none">☒</span>
+                    <div>
+                      <span className="font-semibold text-neutral-900">
+                        {dispositiviSelezionati[0].nome}
+                      </span>
+                      {dispositiviSelezionati[0].note && (
+                        <span className="text-neutral-700 ml-2">&bull; {dispositiviSelezionati[0].note}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 text-[9.5pt]">
+                  {dispositiviSelezionati.slice(1).map((disp, idx) => (
+                    <div key={disp.id || idx + 1} className="flex items-start gap-2 pl-2 avoid-break">
+                      <span className="font-mono text-sm leading-none">☒</span>
+                      <div>
+                        <span className="font-semibold text-neutral-900">
+                          {disp.nome}
+                        </span>
+                        {disp.note && (
+                          <span className="text-neutral-700 ml-2">&bull; {disp.note}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 8. ARGOMENTI DISCUSSI (SOLO CSE - NASCOSTO SE VUOTO) */}
+            {isCSE && paragrafiArgomenti.length > 0 && (
               <div className="mb-5">
                 <div className="avoid-break mb-1">
                   <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
@@ -658,8 +745,20 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 9. SOSPENSIONE LAVORI */}
-            {sopralluogo.sospensione_lavori && (
+            {/* 8b. ORDINI DI SERVIZIO E DISPOSIZIONI DL (SOLO DL - NASCOSTO SE VUOTO) */}
+            {isDL && sopralluogo.ordini_servizio?.trim() && (
+              <div className="mb-5 p-3.5 bg-neutral-50 border border-neutral-300 rounded avoid-break">
+                <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
+                  Ordini di Servizio & Disposizioni della Direzione Lavori:
+                </h3>
+                <p className="text-[9.5pt] text-neutral-800 whitespace-pre-wrap pl-2 leading-relaxed">
+                  {sopralluogo.ordini_servizio}
+                </p>
+              </div>
+            )}
+
+            {/* 9. SOSPENSIONE LAVORI (SOLO CSE - NASCOSTO SE NON ATTIVATO) */}
+            {isCSE && sopralluogo.sospensione_lavori && sopralluogo.motivo_sospensione?.trim() && (
               <div className="mb-5 p-3.5 bg-neutral-100 border-2 border-neutral-900 text-xs avoid-break">
                 <h4 className="font-black uppercase text-neutral-900 mb-1">
                   DISPOSIZIONE DI SOSPENSIONE DEI LAVORI (Art. 92 c.1 lett. f D.Lgs. 81/08):
@@ -668,8 +767,8 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 10. PRESCRIZIONI */}
-            {sopralluogo.prescrizioni_lista && sopralluogo.prescrizioni_lista.length > 0 && (
+            {/* 10. PRESCRIZIONI (SOLO CSE - NASCOSTO SE VUOTO) */}
+            {isCSE && prescrizioniValide.length > 0 && (
               <div className="mb-5">
                 <div className="avoid-break mb-1">
                   <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-2">
@@ -677,19 +776,19 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                   </h3>
                   <div className="flex justify-between items-baseline border-b border-neutral-200 pb-0.5 text-[9.5pt] pl-2">
                     <span>
-                      &bull; {sopralluogo.prescrizioni_lista[0].testo}{' '}
-                      {sopralluogo.prescrizioni_lista[0].impresa_destinataria ? `(Destinatario: ${sopralluogo.prescrizioni_lista[0].impresa_destinataria})` : ''}
+                      &bull; {prescrizioniValide[0].testo}{' '}
+                      {prescrizioniValide[0].impresa_destinataria ? `(Destinatario: ${prescrizioniValide[0].impresa_destinataria})` : ''}
                     </span>
-                    {sopralluogo.prescrizioni_lista[0].data_scadenza && (
+                    {prescrizioniValide[0].data_scadenza && (
                       <span className="text-[8.5pt] text-neutral-600 font-mono">
-                        Termine: {sopralluogo.prescrizioni_lista[0].data_scadenza}
+                        Termine: {prescrizioniValide[0].data_scadenza}
                       </span>
                     )}
                   </div>
                 </div>
 
                 <div className="space-y-1 text-[9.5pt] pl-2">
-                  {sopralluogo.prescrizioni_lista.slice(1).map((p, idx) => (
+                  {prescrizioniValide.slice(1).map((p, idx) => (
                     <div key={idx + 1} className="flex justify-between items-baseline border-b border-neutral-200 pb-0.5 avoid-break">
                       <span>
                         &bull; {p.testo}{' '}
@@ -706,20 +805,52 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 11. RILIEVI FOTOGRAFICI (ANTI-ORFANO) */}
-            {sopralluogo.rilievi && sopralluogo.rilievi.length > 0 && (
+            {/* 11. RILIEVI FOTOGRAFICI E DOCUMENTAZIONE TECNICA (NASCOSTO SE NESSUNA FOTO/RILIEVO VALIDO) */}
+            {rilieviValidi.length > 0 && (
               <div className="mb-6">
                 <div className="avoid-break mb-3">
                   <h3 className="font-bold text-[9.5pt] uppercase tracking-wide text-neutral-900 border-b border-neutral-300 pb-1 mb-3">
-                    Rilievi Visivi e Documentazione Fotografica:
+                    {isRilievo
+                      ? 'Rilievo fotografico'
+                      : isDL
+                        ? 'Documentazione Fotografica di Avanzamento Opere:'
+                        : 'Rilievi Visivi e Documentazione Fotografica:'}
                   </h3>
                   
-                  {sopralluogo.rilievi[0] && (
-                    <div className="text-[9.5pt]">
-                      <p className="font-medium text-neutral-800 mb-2">&bull; {sopralluogo.rilievi[0].descrizione}</p>
-                      {sopralluogo.rilievi[0].foto_urls && sopralluogo.rilievi[0].foto_urls.length > 0 && (
+                  {rilieviValidi[0] && (
+                    <div className="text-[9.5pt] p-2.5 rounded border border-neutral-200 bg-neutral-50/50">
+                      {rilieviValidi[0].ambiente?.trim() && (
+                        <div className="font-bold text-neutral-900 text-[9pt] uppercase tracking-wide mb-1.5 text-amber-800">
+                          Ambiente / Posizione: {rilieviValidi[0].ambiente.trim()}
+                        </div>
+                      )}
+
+                      {/* Tre Misure Opzionali (mostra solo quelle compilate) */}
+                      {(rilieviValidi[0].misura_1?.trim() || rilieviValidi[0].misura_2?.trim() || rilieviValidi[0].misura_3?.trim() || rilieviValidi[0].quote_note?.trim()) && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[9pt] text-neutral-700 bg-neutral-100 px-2.5 py-1 rounded border border-neutral-200 mb-2">
+                          <span className="font-bold text-neutral-900 uppercase text-[8pt]">Misure:</span>
+                          {rilieviValidi[0].misura_1?.trim() && (
+                            <span><strong className="text-neutral-800">1:</strong> {rilieviValidi[0].misura_1.trim()}</span>
+                          )}
+                          {rilieviValidi[0].misura_2?.trim() && (
+                            <span><strong className="text-neutral-800">2:</strong> {rilieviValidi[0].misura_2.trim()}</span>
+                          )}
+                          {rilieviValidi[0].misura_3?.trim() && (
+                            <span><strong className="text-neutral-800">3:</strong> {rilieviValidi[0].misura_3.trim()}</span>
+                          )}
+                          {!rilieviValidi[0].misura_1?.trim() && !rilieviValidi[0].misura_2?.trim() && !rilieviValidi[0].misura_3?.trim() && rilieviValidi[0].quote_note?.trim() && (
+                            <span>{rilieviValidi[0].quote_note.trim()}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {rilieviValidi[0].descrizione?.trim() && (
+                        <p className="font-medium text-neutral-800 mb-2">&bull; {rilieviValidi[0].descrizione.trim()}</p>
+                      )}
+
+                      {rilieviValidi[0].foto_urls && rilieviValidi[0].foto_urls.length > 0 && (
                         <div className="flex flex-wrap items-start gap-3">
-                          {sopralluogo.rilievi[0].foto_urls.map((url, fIdx) => (
+                          {rilieviValidi[0].foto_urls.map((url, fIdx) => (
                             <img 
                               key={fIdx} 
                               src={url} 
@@ -734,9 +865,37 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                   )}
                 </div>
 
-                {sopralluogo.rilievi.slice(1).map((r, idx) => (
-                  <div key={idx + 1} className="text-[9.5pt] avoid-break mt-4">
-                    <p className="font-medium text-neutral-800 mb-2">&bull; {r.descrizione}</p>
+                {rilieviValidi.slice(1).map((r, idx) => (
+                  <div key={idx + 1} className="text-[9.5pt] avoid-break mt-3 p-2.5 rounded border border-neutral-200 bg-neutral-50/50">
+                    {r.ambiente?.trim() && (
+                      <div className="font-bold text-neutral-900 text-[9pt] uppercase tracking-wide mb-1.5 text-amber-800">
+                        Ambiente / Posizione: {r.ambiente.trim()}
+                      </div>
+                    )}
+
+                    {/* Tre Misure Opzionali (mostra solo quelle compilate) */}
+                    {(r.misura_1?.trim() || r.misura_2?.trim() || r.misura_3?.trim() || r.quote_note?.trim()) && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[9pt] text-neutral-700 bg-neutral-100 px-2.5 py-1 rounded border border-neutral-200 mb-2">
+                        <span className="font-bold text-neutral-900 uppercase text-[8pt]">Misure:</span>
+                        {r.misura_1?.trim() && (
+                          <span><strong className="text-neutral-800">1:</strong> {r.misura_1.trim()}</span>
+                        )}
+                        {r.misura_2?.trim() && (
+                          <span><strong className="text-neutral-800">2:</strong> {r.misura_2.trim()}</span>
+                        )}
+                        {r.misura_3?.trim() && (
+                          <span><strong className="text-neutral-800">3:</strong> {r.misura_3.trim()}</span>
+                        )}
+                        {!r.misura_1?.trim() && !r.misura_2?.trim() && !r.misura_3?.trim() && r.quote_note?.trim() && (
+                          <span>{r.quote_note.trim()}</span>
+                        )}
+                      </div>
+                    )}
+
+                    {r.descrizione?.trim() && (
+                      <p className="font-medium text-neutral-800 mb-2">&bull; {r.descrizione.trim()}</p>
+                    )}
+
                     {r.foto_urls && r.foto_urls.length > 0 && (
                       <div className="flex flex-wrap items-start gap-3">
                         {r.foto_urls.map((url, fIdx) => (
@@ -755,11 +914,15 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
               </div>
             )}
 
-            {/* 12. FIRMA DEL CSE (CHIUSURA DEFINITIVA DEL VERBALE) */}
+            {/* 12. FIRMA (CHIUSURA DEFINITIVA DEL VERBALE IN BASE AL RUOLO) */}
             <div className="pt-6 mt-8 border-t border-neutral-300 flex justify-end avoid-break">
               <div className="text-center min-w-[260px]">
                 <p className="font-bold text-[9.5pt] text-neutral-900 leading-none">
-                  Il Coordinatore per la Sicurezza (CSE)
+                  {sopralluogo.tipo_verbale === 'DL'
+                    ? 'Il Direttore dei Lavori (DL)'
+                    : sopralluogo.tipo_verbale === 'RILIEVO'
+                      ? 'Il Tecnico Incaricato del Rilievo'
+                      : 'Il Coordinatore per la Sicurezza (CSE)'}
                 </p>
                 
                 <div 
@@ -769,7 +932,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                   {timbroFirma ? (
                     <img 
                       src={timbroFirma} 
-                      alt="Timbro e Firma CSE" 
+                      alt="Timbro e Firma" 
                       style={{ height: `${timbroHeightCm}cm`, width: 'auto' }}
                       className="max-w-[280px] object-contain mx-auto block"
                     />

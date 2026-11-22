@@ -42,6 +42,7 @@ export const ModalCantiere: React.FC<ModalCantiereProps> = ({ isOpen, onClose, o
           progettista: progettista.trim() || '',
           cse: cse.trim() || 'arch. Cavalleri Michele',
           status: status,
+          imprese_ids: [],
         }
       ]);
 

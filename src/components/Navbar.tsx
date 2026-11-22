@@ -51,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           
-          {/* Logo Brand */}
+          {/* Logo Brand CantierHub */}
           <div 
             className="flex items-center space-x-3 cursor-pointer select-none" 
             onClick={() => onSelectTab('cantieri')}
@@ -61,12 +61,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xl font-bold text-white tracking-tight">CSE App</span>
+                <span className="text-xl font-bold text-white tracking-tight">CantierHub</span>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  D.Lgs 81/08
+                  Hub Multi-Ruolo
                 </span>
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Sicurezza Cantieri & Verbali</p>
+              <p className="text-xs text-slate-400 hidden sm:block">CSE • Direzione Lavori • Rilievi</p>
             </div>
           </div>
 

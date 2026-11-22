@@ -6,7 +6,7 @@ import { ModalSopralluogo } from './components/ModalSopralluogo';
 import { SopralluoghiView } from './components/SopralluoghiView';
 import { ImpreseView } from './components/ImpreseView';
 import { VerbalePdfModal } from './components/VerbalePdfModal';
-import type { Cantiere, Sopralluogo, Impresa, DashboardStats, NavTab, PendingSopralluogo } from './types';
+import type { Cantiere, Sopralluogo, Impresa, DashboardStats, NavTab, PendingSopralluogo, TipoVerbale } from './types';
 import { supabase } from './lib/supabaseClient';
 import { 
   getCachedData, 
@@ -32,6 +32,7 @@ export const App: React.FC = () => {
   const [isModalSopralluogoOpen, setIsModalSopralluogoOpen] = useState<boolean>(false);
 
   const [sopralluogoToEdit, setSopralluogoToEdit] = useState<Sopralluogo | null>(null);
+  const [initialTipoVerbale, setInitialTipoVerbale] = useState<TipoVerbale>('CSE');
   const [sopralluogoForPdf, setSopralluogoForPdf] = useState<Sopralluogo | null>(null);
   const [selectedCantiereId, setSelectedCantiereId] = useState<string | null>(null);
 
@@ -106,6 +107,7 @@ export const App: React.FC = () => {
         id: p.tempId,
         temp_id: p.tempId,
         cantiere_id: p.cantiere_id,
+        tipo_verbale: p.payload.tipo_verbale || 'CSE',
         data: p.payload.data || new Date().toISOString().split('T')[0],
         ora: p.payload.ora || '09:00',
         lavorazioni_in_corso: p.payload.lavorazioni_in_corso || '',
@@ -119,6 +121,10 @@ export const App: React.FC = () => {
         prescrizioni_lista: p.payload.prescrizioni_lista || [],
         sospensione_lavori: p.payload.sospensione_lavori || false,
         motivo_sospensione: p.payload.motivo_sospensione || '',
+        condizioni_meteo: p.payload.condizioni_meteo || null,
+        ordini_servizio: p.payload.ordini_servizio || null,
+        operai_totali: p.payload.operai_totali ?? null,
+        note_tecniche: p.payload.note_tecniche || null,
         is_pending: true,
         pending_status: p.status,
         pending_error: p.errorMessage,
@@ -216,6 +222,7 @@ export const App: React.FC = () => {
         direttore_lavori: item.direttore_lavori || '',
         progettista: item.progettista || '',
         cse: item.cse || 'arch. Cavalleri Michele',
+        imprese_ids: Array.isArray(item.imprese_ids) ? item.imprese_ids : undefined,
         stato: item.status === 'sospeso' ? 'sospeso' : item.status === 'completato' ? 'completato' : 'in_corso',
         created_at: item.created_at,
       }));
@@ -234,6 +241,7 @@ export const App: React.FC = () => {
       const mappedSopralluoghi: Sopralluogo[] = (sData || []).map((item: any) => ({
         id: item.id,
         cantiere_id: item.cantiere_id,
+        tipo_verbale: item.tipo_verbale || 'CSE',
         data: item.data || new Date().toISOString().split('T')[0],
         ora: item.ora || '09:00',
         lavorazioni_in_corso: item.lavorazioni_in_corso || '',
@@ -247,6 +255,10 @@ export const App: React.FC = () => {
         prescrizioni_lista: item.prescrizioni_lista || [],
         sospensione_lavori: item.sospensione_lavori || false,
         motivo_sospensione: item.motivo_sospensione || '',
+        condizioni_meteo: item.condizioni_meteo || null,
+        ordini_servizio: item.ordini_servizio || null,
+        operai_totali: item.operai_totali ?? null,
+        note_tecniche: item.note_tecniche || null,
       }));
 
       await setCachedData(OFFLINE_KEYS.SOPRALLUOGHI, mappedSopralluoghi);
@@ -271,6 +283,8 @@ export const App: React.FC = () => {
         id: item.id,
         cantiere_id: item.cantiere_id,
         ragione_sociale: item.ragione_sociale,
+        tipo: item.tipo || (item.ruolo === 'lavoratore_autonomo' ? 'lavoratore_autonomo' : 'impresa'),
+        email: item.email || '',
         p_iva: item.p_iva || '',
         referente: item.referente_nome || item.referente || '',
         telefono: item.telefono || '',
@@ -406,6 +420,35 @@ export const App: React.FC = () => {
     setActiveTab('sopralluoghi');
   };
 
+  const handleDuplicateAs = (source: Sopralluogo, targetTipo: TipoVerbale) => {
+    const draftSopralluogo: Sopralluogo = {
+      id: '', // Bozza: id vuoto per creare un NUOVO record distinto
+      cantiere_id: source.cantiere_id,
+      tipo_verbale: targetTipo,
+      data: source.data,
+      ora: source.ora,
+      lavorazioni_in_corso: source.lavorazioni_in_corso,
+      fasi_lavoro: source.fasi_lavoro ? JSON.parse(JSON.stringify(source.fasi_lavoro)) : [],
+      imprese_presenti: source.imprese_presenti ? [...source.imprese_presenti] : [],
+      imprese_dettaglio: source.imprese_dettaglio ? JSON.parse(JSON.stringify(source.imprese_dettaglio)) : [],
+      presenze: source.presenze ? JSON.parse(JSON.stringify(source.presenze)) : undefined,
+      dispositivi_apprestamenti: [],
+      argomenti_discussi: '',
+      rilievi: [{ id: crypto.randomUUID(), descrizione: '', foto_urls: [] }],
+      prescrizioni_lista: [],
+      sospensione_lavori: false,
+      motivo_sospensione: null,
+      condizioni_meteo: targetTipo === 'DL' ? (source.condizioni_meteo || 'Sereno - Cantiere regolarmente operativo') : null,
+      ordini_servizio: null,
+      operai_totali: targetTipo === 'DL' ? (source.operai_totali ?? undefined) : null,
+      note_tecniche: null,
+    };
+
+    setInitialTipoVerbale(targetTipo);
+    setSopralluogoToEdit(draftSopralluogo);
+    setIsModalSopralluogoOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
       <Navbar
@@ -445,10 +488,12 @@ export const App: React.FC = () => {
             onSync={triggerSync}
             onSelectCantiereFilter={(id) => setSelectedCantiereId(id)}
             onNewSopralluogo={() => {
+              setInitialTipoVerbale('CSE');
               setSopralluogoToEdit(null);
               setIsModalSopralluogoOpen(true);
             }}
             onEditSopralluogo={(sopr) => {
+              setInitialTipoVerbale(sopr.tipo_verbale || 'CSE');
               setSopralluogoToEdit(sopr);
               setIsModalSopralluogoOpen(true);
             }}
@@ -456,6 +501,7 @@ export const App: React.FC = () => {
               setSopralluogoForPdf(sopr);
             }}
             onDeleteSopralluogo={handleDeleteSopralluogo}
+            onDuplicateAs={handleDuplicateAs}
           />
         )}
 
@@ -466,6 +512,14 @@ export const App: React.FC = () => {
             cantieri={cantieri}
             sopralluoghi={sopralluoghi}
             onOpenSopralluoghiCantiere={handleOpenSopralluoghiCantiere}
+            onEditSopralluogo={(sopr) => {
+              setInitialTipoVerbale(sopr.tipo_verbale || 'CSE');
+              setSopralluogoToEdit(sopr);
+              setIsModalSopralluogoOpen(true);
+            }}
+            onPrintSopralluogo={(sopr) => {
+              setSopralluogoForPdf(sopr);
+            }}
             onDeleteImpresa={handleDeleteImpresa}
             onRefresh={fetchData}
           />
@@ -488,7 +542,9 @@ export const App: React.FC = () => {
         }}
         cantieri={cantieri}
         imprese={imprese}
+        sopralluoghi={sopralluoghi}
         initialCantiereId={selectedCantiereId || undefined}
+        initialTipoVerbale={initialTipoVerbale}
         sopralluogoToEdit={sopralluogoToEdit}
         onSuccess={fetchData}
       />
@@ -504,7 +560,7 @@ export const App: React.FC = () => {
       )}
 
       <footer className="border-t border-slate-900 bg-slate-950/80 py-4 text-center text-xs text-slate-400 mt-12 print:hidden">
-        cse-app &bull; Arch. Michele Cavalleri &bull; Coordinamento Sicurezza D.Lgs. 81/08 &bull; Offline-First Engine
+        CantierHub &bull; Arch. Michele Cavalleri &bull; Hub di Gestione Cantiere (CSE &bull; DL &bull; Rilievi) &bull; Offline-First Engine
       </footer>
     </div>
   );
