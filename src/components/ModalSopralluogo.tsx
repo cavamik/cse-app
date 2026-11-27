@@ -695,9 +695,17 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const handleDragOver = (rilievoId: string, e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
     if (draggingRilievoId !== rilievoId) {
       setDraggingRilievoId(rilievoId);
     }
+  };
+
+  const handleDragEnter = (rilievoId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setDraggingRilievoId(rilievoId);
   };
 
   const handleDragLeave = (rilievoId: string, e: React.DragEvent) => {
@@ -709,28 +717,93 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     }
   };
 
-  const handleDrop = (rilievoId: string, e: React.DragEvent) => {
+  const handleDrop = async (rilievoId: string, e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDraggingRilievoId(null);
 
     const droppedImages: File[] = [];
 
+    // 1. Controlla file diretti dal sistema operativo (Explorer, Desktop, etc.)
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        const f = e.dataTransfer.files[i];
-        if (f.type.startsWith('image/')) {
-          droppedImages.push(f);
+        const file = e.dataTransfer.files[i];
+        const isImage = file.type.startsWith('image/') || 
+                        /\.(jpe?g|png|webp|gif|bmp|heic|jfif|tiff?|avif)$/i.test(file.name);
+        if (isImage) {
+          if (!file.type) {
+            const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+            const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+            droppedImages.push(new File([file], file.name, { type: mime }));
+          } else {
+            droppedImages.push(file);
+          }
         }
       }
     }
 
-    if (droppedImages.length === 0 && e.dataTransfer.items) {
+    // 2. Se non trovati, cerca negli items con getAsFile()
+    if (droppedImages.length === 0 && e.dataTransfer.items && e.dataTransfer.items.length > 0) {
       for (let i = 0; i < e.dataTransfer.items.length; i++) {
         const item = e.dataTransfer.items[i];
         if (item.type.startsWith('image/')) {
-          const f = item.getAsFile();
-          if (f) droppedImages.push(f);
+          const file = item.getAsFile();
+          if (file) droppedImages.push(file);
+        }
+      }
+    }
+
+    // 3. Se ancora vuoto, verifica se è un'immagine trascinata da un'altra scheda web (es. HTML o URL)
+    if (droppedImages.length === 0) {
+      let imageUrl: string | null = null;
+      const html = e.dataTransfer.getData('text/html');
+      if (html) {
+        const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (match && match[1]) {
+          imageUrl = match[1];
+        }
+      }
+
+      if (!imageUrl) {
+        const uri = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('URL') || e.dataTransfer.getData('text/plain');
+        if (uri && (uri.startsWith('http://') || uri.startsWith('https://') || uri.startsWith('data:image/') || uri.startsWith('blob:'))) {
+          imageUrl = uri.trim();
+        }
+      }
+
+      if (imageUrl) {
+        if (imageUrl.startsWith('data:image/')) {
+          try {
+            const parts = imageUrl.split(',');
+            const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+            const bstr = atob(parts[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+              u8arr[n] = bstr.charCodeAt(n);
+            }
+            const blob = new Blob([u8arr], { type: mime });
+            const ext = mime.split('/')[1] || 'jpg';
+            droppedImages.push(new File([blob], `trascinata_${Date.now()}.${ext}`, { type: mime }));
+          } catch (err) {
+            console.warn('Errore parsing data URL:', err);
+          }
+        } else {
+          try {
+            const resp = await fetch(imageUrl, { mode: 'cors' });
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const mime = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+              const ext = mime.split('/')[1] || 'jpg';
+              droppedImages.push(new File([blob], `trascinata_${Date.now()}.${ext}`, { type: mime }));
+            } else {
+              throw new Error('HTTP ' + resp.status);
+            }
+          } catch {
+            // Google Foto protegge con cross-origin le immagini trascinate tra schede
+            alert("Attenzione: Google Foto blocca il trascinamento diretto delle foto tra schede del browser per motivi di sicurezza di Google.\n\nPer inserire le foto da Google Foto usa il metodo rapido via appunti:\n1. Tasto destro sulla foto in Google Foto > 'Copia immagine'\n2. Premi Ctrl + V qui nel verbale!\n(Funziona all'istante senza dover scaricare il file)");
+            return;
+          }
         }
       }
     }
@@ -1852,6 +1925,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   onFocus={() => setActiveRilievoId(ril.id)}
                   onClick={() => setActiveRilievoId(ril.id)}
                   onPaste={(e) => handlePaste(ril.id, e)}
+                  onDragEnter={(e) => handleDragEnter(ril.id, e)}
                   onDragOver={(e) => handleDragOver(ril.id, e)}
                   onDragLeave={(e) => handleDragLeave(ril.id, e)}
                   onDrop={(e) => handleDrop(ril.id, e)}
@@ -1995,6 +2069,9 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     value={ril.descrizione}
                     onFocus={() => setActiveRilievoId(ril.id)}
                     onPaste={(e) => handlePaste(ril.id, e)}
+                    onDragEnter={(e) => handleDragEnter(ril.id, e)}
+                    onDragOver={(e) => handleDragOver(ril.id, e)}
+                    onDrop={(e) => handleDrop(ril.id, e)}
                     onChange={(e) => updateRilievoTesto(ril.id, e.target.value)}
                     placeholder={tipoVerbale === 'RILIEVO' ? "Note / descrizione del rilievo fotografico (opzionale)..." : "Descrivi l'osservazione o rilievo riscontrato (opzionale)..."}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm sm:text-base leading-relaxed text-slate-100 focus:border-amber-500 focus:outline-none"
