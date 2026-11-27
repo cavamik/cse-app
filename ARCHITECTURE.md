@@ -65,6 +65,7 @@ src/
 │   │                             #  - Cambio tipologia non distruttivo: preserva i dati di tutte le sezioni anche passando da un ruolo all'altro
 │   │                             #  - Campi condizionali per ruolo (Meteo/OdS per DL; Note tecniche/Misure per RILIEVO; Apprestamenti/Prescrizioni per CSE)
 │   │                             #  - Compressione WebP ~100 KB in tempo reale e staging Blob per storage offline
+│   │                             #  - Acquisizione rapida foto da PC: Drag & Drop e Incolla da appunti (Ctrl+V) per foto copiate da Google Foto o screenshot
 │   │                             #  - Anteprima PDF live prima del salvataggio
 │   ├── ImpreseView.tsx           # Anagrafica operatori economici (imprese, lavoratori autonomi), filtro per cantiere,
 │   │                             # email, associazione rapida e sezione "Verbali in cui è presente" con badge ruolo e azioni rapide (PDF/Modifica)

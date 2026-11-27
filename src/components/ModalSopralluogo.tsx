@@ -4,7 +4,7 @@ import {
   Building2, Users, Loader2, CheckSquare, Square, Clock,
   ArrowUp, ArrowDown, AlertTriangle, Check, Eye, Compass,
   Layers, CloudSun, ScrollText, MapPin, Maximize2, HardHat,
-  Lock, Unlock
+  Lock, Unlock, ClipboardPaste, UploadCloud
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { compressImage } from '../utils/imageCompressor';
@@ -172,6 +172,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     { id: crypto.randomUUID(), descrizione: '', foto_urls: [] }
   ]);
   const [filesPerRilievo, setFilesPerRilievo] = useState<Record<string, File[]>>({});
+  const [draggingRilievoId, setDraggingRilievoId] = useState<string | null>(null);
+  const [activeRilievoId, setActiveRilievoId] = useState<string | null>(null);
 
   const [prescrizioni, setPrescrizioni] = useState<PrescrizioneItem[]>([]);
   const [sospensione, setSospensione] = useState(false);
@@ -296,6 +298,53 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       }
     }
   };
+
+  const appendFilesToRilievo = (rilievoId: string, filesToAdd: File[]) => {
+    const validImages = filesToAdd.filter(f => f.type.startsWith('image/'));
+    if (validImages.length === 0) return;
+    setFilesPerRilievo(prev => ({
+      ...prev,
+      [rilievoId]: [...(prev[rilievoId] || []), ...validImages]
+    }));
+  };
+
+  // Listener globale Ctrl+V per incollare foto catturate da Google Foto o Appunti
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
+
+      const hasImage = Array.from(items).some(it => it.type.startsWith('image/'));
+      if (!hasImage) return;
+
+      const targetId = activeRilievoId || (rilievi.length > 0 ? rilievi[0].id : null);
+      if (!targetId) return;
+
+      const pastedImages: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const f = item.getAsFile();
+          if (f) {
+            const ext = item.type.split('/')[1] || 'png';
+            pastedImages.push(new File([f], `foto_${Date.now()}_${i + 1}.${ext}`, { type: f.type }));
+          }
+        }
+      }
+
+      if (pastedImages.length > 0) {
+        e.preventDefault();
+        appendFilesToRilievo(targetId, pastedImages);
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => {
+      window.removeEventListener('paste', handleGlobalPaste);
+    };
+  }, [isOpen, activeRilievoId, rilievi]);
 
   useEffect(() => {
     if (isOpen) {
@@ -602,12 +651,95 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
     setDispositivi(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Upload foto
+  // Upload foto e acquisizione Drag & Drop / Appunti (Ctrl + V)
   const handleFilesChange = (rilievoId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    const files = Array.from(e.target.files);
-    setFilesPerRilievo(prev => ({ ...prev, [rilievoId]: [...(prev[rilievoId] || []), ...files] }));
+    appendFilesToRilievo(rilievoId, Array.from(e.target.files));
   };
+
+  const handlePaste = (rilievoId: string, e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    const files = e.clipboardData?.files;
+    const pastedImages: File[] = [];
+
+    // 1. Cerca file immagine diretti
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].type.startsWith('image/')) {
+          pastedImages.push(files[i]);
+        }
+      }
+    }
+
+    // 2. Se non trovati nei files, cerca negli items (tipico di 'Copia immagine' da Google Foto o screenshot)
+    if (pastedImages.length === 0 && items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            const ext = item.type.split('/')[1] || 'png';
+            pastedImages.push(new File([file], `foto_${Date.now()}_${i + 1}.${ext}`, { type: file.type }));
+          }
+        }
+      }
+    }
+
+    if (pastedImages.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      appendFilesToRilievo(rilievoId, pastedImages);
+    }
+  };
+
+  const handleDragOver = (rilievoId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggingRilievoId !== rilievoId) {
+      setDraggingRilievoId(rilievoId);
+    }
+  };
+
+  const handleDragLeave = (rilievoId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    if (draggingRilievoId === rilievoId) {
+      setDraggingRilievoId(null);
+    }
+  };
+
+  const handleDrop = (rilievoId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraggingRilievoId(null);
+
+    const droppedImages: File[] = [];
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const f = e.dataTransfer.files[i];
+        if (f.type.startsWith('image/')) {
+          droppedImages.push(f);
+        }
+      }
+    }
+
+    if (droppedImages.length === 0 && e.dataTransfer.items) {
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.type.startsWith('image/')) {
+          const f = item.getAsFile();
+          if (f) droppedImages.push(f);
+        }
+      }
+    }
+
+    if (droppedImages.length > 0) {
+      appendFilesToRilievo(rilievoId, droppedImages);
+    }
+  };
+
   const handleRemoveExistingPhoto = (rilievoId: string, urlToRemove: string) => {
     setRilievi(prev => prev.map(r => {
       if (r.id === rilievoId) {
@@ -668,15 +800,30 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         }
       }
 
-      const lavorazioniSintetiche = fasiLavoro
-        .filter(f => f.descrizione.trim())
-        .map(f => `${f.descrizione}${f.impresa ? ` (${f.impresa})` : ''}`)
+      const fasiValide = (fasiLavoro || []).filter(f => f && f.descrizione && f.descrizione.trim());
+      const lavorazioniSintetiche = fasiValide
+        .map(f => `${f.descrizione.trim()}${f.impresa && f.impresa.trim() ? ` (${f.impresa.trim()})` : ''}`)
         .join('; ');
 
+      // Riconosciamo i rilievi che contengono almeno una informazione (foto, note/testo, misure o ambiente)
+      const rilieviValidi = rilievi.filter(ril => {
+        const hasText = Boolean(ril.descrizione && ril.descrizione.trim());
+        const hasAmbiente = Boolean(ril.ambiente && ril.ambiente.trim());
+        const hasQuote = Boolean(ril.quote_note && ril.quote_note.trim());
+        const hasMisura = Boolean(
+          (ril.misura_1 && ril.misura_1.trim()) ||
+          (ril.misura_2 && ril.misura_2.trim()) ||
+          (ril.misura_3 && ril.misura_3.trim())
+        );
+        const hasExistingPhotos = Boolean(ril.foto_urls && ril.foto_urls.length > 0);
+        const hasStagedPhotos = Boolean(filesPerRilievo[ril.id] && filesPerRilievo[ril.id].length > 0);
+        return hasText || hasAmbiente || hasQuote || hasMisura || hasExistingPhotos || hasStagedPhotos;
+      });
+
       // Rilievi privi di blob URL effimeri (le foto staged offline vivono come Blob in pendingFotos)
-      const rilieviBase: RilievoItem[] = rilievi.map(ril => ({
+      const rilieviBase: RilievoItem[] = rilieviValidi.map(ril => ({
         id: ril.id,
-        descrizione: ril.descrizione,
+        descrizione: ril.descrizione || '',
         ambiente: ril.ambiente || undefined,
         quote_note: ril.quote_note || undefined,
         misura_1: ril.misura_1 || undefined,
@@ -691,7 +838,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
         data: dataSopralluogo,
         ora: oraSopralluogo,
         lavorazioni_in_corso: lavorazioniSintetiche || '',
-        fasi_lavoro: fasiLavoro || [],
+        fasi_lavoro: fasiValide,
         imprese_presenti: arrayStringheImpresePresenti || [],
         imprese_dettaglio: impresePresentiLista || [],
         presenze: presenze,
@@ -755,7 +902,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
         const rilieviFinali: RilievoItem[] = [];
 
-        for (const ril of rilievi) {
+        for (const ril of rilieviValidi) {
           const uploadedUrls: string[] = [...(ril.foto_urls || []).filter(u => !u.startsWith('blob:'))];
           const stagedList = compressedByRilievo[ril.id] || [];
 
@@ -778,7 +925,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
           rilieviFinali.push({
             id: ril.id,
-            descrizione: ril.descrizione,
+            descrizione: ril.descrizione || '',
             ambiente: ril.ambiente || undefined,
             quote_note: ril.quote_note || undefined,
             misura_1: ril.misura_1 || undefined,
@@ -1516,8 +1663,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
                     <input
                       type="text"
-                      required
-                      placeholder="Descrizione lavorazione in corso..."
+                      placeholder="Descrizione lavorazione in corso (opzionale)..."
                       value={fase.descrizione}
                       onChange={(e) => updateFaseLavoro(fase.id, 'descrizione', e.target.value)}
                       className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm sm:text-base text-white focus:border-amber-500 focus:outline-none w-full"
@@ -1693,8 +1839,37 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 </button>
               </div>
 
-              {rilievi.map((ril, index) => (
-                <div key={ril.id} className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-3">
+              {rilievi.map((ril, index) => {
+                const isDraggingThis = draggingRilievoId === ril.id;
+                const stagedCount = filesPerRilievo[ril.id]?.length || 0;
+                const existingCount = ril.foto_urls?.length || 0;
+                const totalPhotos = stagedCount + existingCount;
+
+                return (
+                <div 
+                  key={ril.id} 
+                  tabIndex={0}
+                  onFocus={() => setActiveRilievoId(ril.id)}
+                  onClick={() => setActiveRilievoId(ril.id)}
+                  onPaste={(e) => handlePaste(ril.id, e)}
+                  onDragOver={(e) => handleDragOver(ril.id, e)}
+                  onDragLeave={(e) => handleDragLeave(ril.id, e)}
+                  onDrop={(e) => handleDrop(ril.id, e)}
+                  className={`p-3.5 rounded-xl space-y-3 transition border ${
+                    isDraggingThis 
+                      ? 'border-amber-500 bg-amber-500/10 ring-2 ring-amber-500/30' 
+                      : activeRilievoId === ril.id 
+                        ? 'border-slate-700 bg-slate-950/90' 
+                        : 'border-slate-800 bg-slate-950/70'
+                  }`}
+                >
+                  {isDraggingThis && (
+                    <div className="p-4 bg-amber-500/20 border-2 border-dashed border-amber-500 rounded-xl text-center text-amber-300 font-bold text-xs flex items-center justify-center gap-2 pointer-events-none animate-pulse">
+                      <UploadCloud className="w-5 h-5 text-amber-400" />
+                      <span>Rilascia qui le immagini per allegarle al Rilievo #{index + 1}</span>
+                    </div>
+                  )}
+
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-1">
                       <button
@@ -1817,15 +1992,16 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
                   <textarea
                     rows={3}
-                    required={tipoVerbale !== 'RILIEVO'}
                     value={ril.descrizione}
+                    onFocus={() => setActiveRilievoId(ril.id)}
+                    onPaste={(e) => handlePaste(ril.id, e)}
                     onChange={(e) => updateRilievoTesto(ril.id, e.target.value)}
-                    placeholder={tipoVerbale === 'RILIEVO' ? "Note / descrizione del rilievo fotografico (opzionale)..." : "Descrivi dettagliatamente l'osservazione o non conformità riscontrata..."}
+                    placeholder={tipoVerbale === 'RILIEVO' ? "Note / descrizione del rilievo fotografico (opzionale)..." : "Descrivi l'osservazione o rilievo riscontrato (opzionale)..."}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm sm:text-base leading-relaxed text-slate-100 focus:border-amber-500 focus:outline-none"
                   />
 
-                  <div className="flex items-center gap-3">
-                    <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-200 text-xs font-medium transition">
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/50 rounded-lg text-slate-200 text-xs font-medium transition cursor-pointer">
                       <Camera className="w-4 h-4 text-amber-400" />
                       <span>Aggiungi Foto</span>
                       <input
@@ -1836,6 +2012,19 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                         className="hidden"
                       />
                     </label>
+
+                    <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 bg-slate-900/60 border border-slate-800/80 px-2.5 py-1.5 rounded-lg">
+                      <ClipboardPaste className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        Trascina qui o premi <strong className="text-slate-200">Ctrl+V</strong> (es. copia da Google Foto)
+                      </span>
+                    </div>
+
+                    {totalPhotos > 0 && (
+                      <span className="text-[11px] text-amber-400 font-semibold px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 ml-auto">
+                        {totalPhotos} {totalPhotos === 1 ? 'fotografia allegata' : 'fotografie allegate'}
+                      </span>
+                    )}
                   </div>
 
                   {((ril.foto_urls && ril.foto_urls.length > 0) || (filesPerRilievo[ril.id] && filesPerRilievo[ril.id].length > 0)) && (
@@ -1866,7 +2055,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                     </div>
                   )}
                 </div>
-              ))}
+              );
+            })}
             </div>
 
             {/* PRESCRIZIONI (SOLO CSE) */}
