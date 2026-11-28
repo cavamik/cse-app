@@ -71,7 +71,8 @@ src/
 │   ├── ImpreseView.tsx           # Anagrafica operatori economici (imprese, lavoratori autonomi), filtro per cantiere,
 │   │                             # email, associazione rapida e sezione "Verbali in cui è presente" con badge ruolo e azioni rapide (PDF/Modifica)
 │   └── VerbalePdfModal.tsx       # Modale di stampa/export PDF A4 conforme per ruolo con logo studio,
-│                                 # timbro professionale, margini regolabili e griglia fotografica adattiva
+│                                 # timbro professionale, margini regolabili, impaginazione dinamica WYSIWYG a fogli A4
+│                                 # separati (con protezione anti-titoletti orfani) e visualizzatore responsive con auto-fit mobile
 │
 ├── lib/
 │   ├── supabaseClient.ts         # Inizializzazione del client Supabase
