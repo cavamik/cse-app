@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, ClipboardCheck, Plus, Trash2, Camera, AlertOctagon, 
   Building2, Users, Loader2, CheckSquare, Square, Clock,
@@ -104,22 +104,22 @@ const STEPS_CSE: StepDef[] = [
   { id: 1, label: 'Dati Generali', shortLabel: 'Dati', icon: Clock },
   { id: 2, label: 'Presenze & Lavori', shortLabel: 'Presenze', icon: Users },
   { id: 3, label: 'Sicurezza & Apprestamenti', shortLabel: 'Sicurezza', icon: CheckSquare },
-  { id: 4, label: 'Coordinamento', shortLabel: 'Note', icon: ScrollText },
+  { id: 4, label: 'Coordinamento', shortLabel: 'Coordinam.', icon: ScrollText },
   { id: 5, label: 'Rilievo Fotografico', shortLabel: 'Foto', icon: Camera },
-  { id: 6, label: 'Prescrizioni & Esito', shortLabel: 'Esito', icon: AlertTriangle },
+  { id: 6, label: 'Prescrizioni & Esito', shortLabel: 'Prescrizioni', icon: AlertTriangle },
 ];
 
 const STEPS_DL: StepDef[] = [
-  { id: 1, label: 'Dati & Meteo', shortLabel: 'Dati', icon: CloudSun },
+  { id: 1, label: 'Dati & Meteo', shortLabel: 'Dati & Meteo', icon: CloudSun },
   { id: 2, label: 'Maestranze & Lavori', shortLabel: 'Maestranze', icon: Users },
-  { id: 3, label: 'Ordini di Servizio', shortLabel: 'OdS', icon: ScrollText },
+  { id: 3, label: 'Ordini di Servizio', shortLabel: 'Ordini DL', icon: ScrollText },
   { id: 4, label: 'Rilievo Fotografico', shortLabel: 'Foto', icon: Camera },
 ];
 
 const STEPS_RILIEVO: StepDef[] = [
   { id: 1, label: 'Dati Generali', shortLabel: 'Dati', icon: Clock },
   { id: 2, label: 'Premesse Tecniche', shortLabel: 'Premesse', icon: ScrollText },
-  { id: 3, label: 'Rilievo & Misure', shortLabel: 'Rilievo', icon: Camera },
+  { id: 3, label: 'Rilievo & Misure', shortLabel: 'Rilievo & Foto', icon: Camera },
 ];
 
 export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({ 
@@ -141,6 +141,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   // Navigazione Guidata a Step o Vista Completa
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'steps' | 'all'>('steps');
+  const activeStepBtnRef = useRef<HTMLButtonElement | null>(null);
+  const stepperContainerRef = useRef<HTMLDivElement | null>(null);
 
   const currentStepsList = tipoVerbale === 'DL' 
     ? STEPS_DL 
@@ -160,6 +162,17 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
       setCurrentStep(max);
     }
   }, [tipoVerbale, currentStepsList.length, currentStep]);
+
+  // Scorrimento automatico per mantenere lo step attivo sempre visibile nella barra (anche su smartphone)
+  useEffect(() => {
+    if (viewMode === 'steps' && activeStepBtnRef.current) {
+      activeStepBtnRef.current.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'nearest',
+        block: 'nearest',
+      });
+    }
+  }, [currentStep, viewMode]);
   const [dataSopralluogo, setDataSopralluogo] = useState(() => new Date().toISOString().split('T')[0]);
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
@@ -1140,7 +1153,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   return (
     <>
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl my-auto text-sm relative">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl my-auto text-sm relative">
           
           {/* Header Modale */}
           <div className="p-4 sm:p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950/70 sticky top-0 z-10">
@@ -1202,8 +1215,16 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
 
           {/* Barra Stepper di Navigazione (visibile in modalità a step) */}
           {viewMode === 'steps' && (
-            <div className="bg-slate-950/90 border-b border-slate-800 px-3 sm:px-5 py-2.5 overflow-x-auto scrollbar-none shrink-0 sticky top-[73px] z-10">
-              <div className="flex items-center gap-1.5 min-w-max">
+            <div className="bg-slate-950/95 border-b border-slate-800 px-2.5 sm:px-4 py-2 shrink-0 sticky top-[73px] z-10">
+              <div 
+                ref={stepperContainerRef}
+                onWheel={(e) => {
+                  if (e.deltaY !== 0) {
+                    e.currentTarget.scrollLeft += e.deltaY;
+                  }
+                }}
+                className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-slate-900/50 [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-thumb]:rounded-full [scrollbar-color:#334155_transparent]"
+              >
                 {currentStepsList.map((step) => {
                   const isActive = currentStep === step.id;
                   const isPast = currentStep > step.id;
@@ -1212,9 +1233,11 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                   return (
                     <button
                       key={step.id}
+                      ref={isActive ? activeStepBtnRef : null}
                       type="button"
                       onClick={() => setCurrentStep(step.id)}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                      title={`${step.id}. ${step.label}`}
+                      className={`flex-1 min-w-[90px] sm:min-w-0 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
                         isActive
                           ? tipoVerbale === 'DL'
                             ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 shadow-sm'
@@ -1226,7 +1249,7 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                             : 'bg-transparent text-slate-500 border-transparent hover:text-slate-400 hover:bg-slate-900/50'
                       }`}
                     >
-                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                      <span className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
                         isActive
                           ? tipoVerbale === 'DL'
                             ? 'bg-blue-500 text-slate-950'
@@ -1239,8 +1262,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                       }`}>
                         {step.id}
                       </span>
-                      <Icon className="w-3.5 h-3.5 shrink-0" />
-                      <span className="whitespace-nowrap">{step.label}</span>
+                      <Icon className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
+                      <span className="whitespace-nowrap sm:truncate">{step.shortLabel}</span>
                     </button>
                   );
                 })}
