@@ -59,6 +59,9 @@ export interface ImpostazioniStudioCache {
   foto_height_cm?: number | null;
   timbro_height_cm?: number | null;
   timbro_margin_mm?: number | null;
+  spazio_dopo_logo_mm?: number | null;
+  logo_secondario_url?: string | null;
+  spazio_dopo_logo_secondario_mm?: number | null;
 }
 
 /**

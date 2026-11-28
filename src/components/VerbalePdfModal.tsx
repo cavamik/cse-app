@@ -20,16 +20,24 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 }) => {
   const [loadingAssets, setLoadingAssets] = useState(false);
 
+  // Logo Principale (Pagina 1) & Spaziatura
   const [logoStudio, setLogoStudio] = useState<string | null>(null);
+  const [spazioDopoLogoMm, setSpazioDopoLogoMm] = useState<number>(15);
+
+  // Logo Secondario (Pagine > 1) & Spaziatura
+  const [logoSecondarioUrl, setLogoSecondarioUrl] = useState<string | null>(null);
+  const [spazioDopoLogoSecondarioMm, setSpazioDopoLogoSecondarioMm] = useState<number>(10);
+
+  // Timbro e Firma
   const [timbroFirma, setTimbroFirma] = useState<string | null>(null);
+  const [timbroHeightCm, setTimbroHeightCm] = useState<number>(4.0);
+  const [timbroMarginMm, setTimbroMarginMm] = useState<number>(-8);
 
   // Margini A4 in mm (Default: Top 10mm, Bottom 15mm, Laterali 10mm)
   const [marginTopMm, setMarginTopMm] = useState<number>(10);
   const [marginBottomMm, setMarginBottomMm] = useState<number>(15);
   const [marginLateralMm, setMarginLateralMm] = useState<number>(10);
   const [fotoHeightCm, setFotoHeightCm] = useState<number>(5.0);
-  const [timbroHeightCm, setTimbroHeightCm] = useState<number>(4.0);
-  const [timbroMarginMm, setTimbroMarginMm] = useState<number>(-8);
 
   // Zoom & Adattamento Responsive Schermo (Cruciale su Smartphone)
   const [zoomScale, setZoomScale] = useState<number>(1.0);
@@ -49,6 +57,9 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       if (data.foto_height_cm !== null && data.foto_height_cm !== undefined) setFotoHeightCm(Number(data.foto_height_cm));
       if (data.timbro_height_cm !== null && data.timbro_height_cm !== undefined) setTimbroHeightCm(Number(data.timbro_height_cm));
       if (data.timbro_margin_mm !== null && data.timbro_margin_mm !== undefined) setTimbroMarginMm(Number(data.timbro_margin_mm));
+      if (data.spazio_dopo_logo_mm !== null && data.spazio_dopo_logo_mm !== undefined) setSpazioDopoLogoMm(Number(data.spazio_dopo_logo_mm));
+      if (data.logo_secondario_url) setLogoSecondarioUrl(data.logo_secondario_url);
+      if (data.spazio_dopo_logo_secondario_mm !== null && data.spazio_dopo_logo_secondario_mm !== undefined) setSpazioDopoLogoSecondarioMm(Number(data.spazio_dopo_logo_secondario_mm));
     };
 
     const fetchStudioSettings = async () => {
@@ -113,6 +124,13 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     window.print();
   };
 
+  const updateSettingInDb = async (field: string, value: any) => {
+    await supabase
+      .from('impostazioni_studio')
+      .upsert({ id: 'principale', [field]: value, updated_at: new Date().toISOString() });
+  };
+
+  // Upload Logo Principale (Pagina 1)
   const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -134,14 +152,10 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       const { data: pData } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
       const url = pData.publicUrl;
 
-      const { error: dbErr } = await supabase
-        .from('impostazioni_studio')
-        .upsert({ id: 'principale', logo_url: url, updated_at: new Date().toISOString() });
-
-      if (dbErr) throw dbErr;
+      await updateSettingInDb('logo_url', url);
 
       setLogoStudio(url);
-      alert('Logo salvato su Supabase Cloud con successo!');
+      alert('Logo principale salvato su Supabase Cloud con successo!');
     } catch (err: any) {
       alert('Errore caricamento logo: ' + err.message);
     } finally {
@@ -151,11 +165,60 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
 
   const handleRemoveLogo = async () => {
     setLogoStudio(null);
-    await supabase
-      .from('impostazioni_studio')
-      .upsert({ id: 'principale', logo_url: null, updated_at: new Date().toISOString() });
+    await updateSettingInDb('logo_url', null);
   };
 
+  const handleSpazioDopoLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+    setSpazioDopoLogoMm(val);
+    updateSettingInDb('spazio_dopo_logo_mm', val);
+  };
+
+  // Upload Logo Secondario (Pagine > 1)
+  const handleUploadLogoSecondario = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoadingAssets(true);
+    try {
+      const ext = file.name.split('.').pop() || 'svg';
+      const path = `studio/logo_secondario_${Date.now()}.${ext}`;
+
+      const { error: upErr } = await supabase.storage
+        .from('foto-sopralluoghi')
+        .upload(path, file, {
+          contentType: file.type || 'image/svg+xml',
+          upsert: true
+        });
+
+      if (upErr) throw upErr;
+
+      const { data: pData } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
+      const url = pData.publicUrl;
+
+      await updateSettingInDb('logo_secondario_url', url);
+
+      setLogoSecondarioUrl(url);
+      alert('Logo secondario per le pagine successive salvato con successo!');
+    } catch (err: any) {
+      alert('Errore caricamento logo secondario: ' + err.message);
+    } finally {
+      setLoadingAssets(false);
+    }
+  };
+
+  const handleRemoveLogoSecondario = async () => {
+    setLogoSecondarioUrl(null);
+    await updateSettingInDb('logo_secondario_url', null);
+  };
+
+  const handleSpazioDopoLogoSecondarioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+    setSpazioDopoLogoSecondarioMm(val);
+    updateSettingInDb('spazio_dopo_logo_secondario_mm', val);
+  };
+
+  // Upload Timbro PNG
   const handleUploadTimbro = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -176,11 +239,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       const { data: pData } = supabase.storage.from('foto-sopralluoghi').getPublicUrl(path);
       const url = pData.publicUrl;
 
-      const { error: dbErr } = await supabase
-        .from('impostazioni_studio')
-        .upsert({ id: 'principale', timbro_url: url, updated_at: new Date().toISOString() });
-
-      if (dbErr) throw dbErr;
+      await updateSettingInDb('timbro_url', url);
 
       setTimbroFirma(url);
       alert('Timbro salvato su Supabase Cloud con successo!');
@@ -189,12 +248,6 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     } finally {
       setLoadingAssets(false);
     }
-  };
-
-  const updateSettingInDb = async (field: string, value: number) => {
-    await supabase
-      .from('impostazioni_studio')
-      .upsert({ id: 'principale', [field]: value, updated_at: new Date().toISOString() });
   };
 
   const handleMarginTopChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -331,7 +384,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     rilieviValidi
   ]);
 
-  // Motore di misurazione e paginazione dinamica con protezione anti-titoletti orfani
+  // Motore di misurazione e paginazione dinamica con supporto per logo secondario e anti-titoletti orfani
   useEffect(() => {
     if (!isOpen || !measureContainerRef.current) return;
 
@@ -349,6 +402,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     const pxPerMm = 794 / 210; // ~3.78 px/mm
     // Altezza stampabile utile per foglio (297mm meno margini sup e inf con buffer di sicurezza 16px)
     const printableHeightPx = Math.max(200, (297 - marginTopMm - marginBottomMm) * pxPerMm - 16);
+    const secondaryHeaderH = logoSecondarioUrl ? (heightsMap['secondary_header'] || 0) : 0;
 
     const computedPages: string[][] = [[]];
     let currentH = 0;
@@ -356,19 +410,23 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     for (let i = 0; i < allBlockIds.length; i++) {
       const bId = allBlockIds[i];
       const bH = heightsMap[bId] || 0;
+      const isFirstPage = computedPages.length === 1;
+      const effectivePageLimit = isFirstPage ? printableHeightPx : (printableHeightPx - secondaryHeaderH);
 
       // 1. PROTEZIONE ANTI-TITOLETTO ORFANO PER RILIEVI FOTOGRAFICI:
       // Se il titolo della sezione fotografica non ci sta insieme alla prima scheda foto, spostali entrambi nel nuovo foglio!
       if (bId === 'rilievi_header' && allBlockIds[i + 1]?.startsWith('rilievo_')) {
         const firstRilievoH = heightsMap[allBlockIds[i + 1]] || 0;
-        if (currentH > 0 && currentH + bH + firstRilievoH > printableHeightPx) {
+        if (currentH > 0 && currentH + bH + firstRilievoH > effectivePageLimit) {
           computedPages.push([]);
           currentH = 0;
         }
       }
 
+      const currentLimit = computedPages.length === 1 ? printableHeightPx : (printableHeightPx - secondaryHeaderH);
+
       // 2. Se il blocco sfora lo spazio rimanente della pagina attuale, apri un nuovo foglio
-      if (currentH > 0 && currentH + bH > printableHeightPx) {
+      if (currentH > 0 && currentH + bH > currentLimit) {
         computedPages.push([]);
         currentH = 0;
       }
@@ -383,6 +441,9 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     sopralluogo,
     cantiere,
     logoStudio,
+    spazioDopoLogoMm,
+    logoSecondarioUrl,
+    spazioDopoLogoSecondarioMm,
     timbroFirma,
     marginTopMm,
     marginBottomMm,
@@ -401,9 +462,12 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
       case 'header':
         return (
           <div className="mb-4">
-            {/* LOGO STUDIO */}
+            {/* LOGO STUDIO PAGINA 1 CON SPAZIATURA REGOLABILE */}
             {logoStudio && (
-              <div className="w-full mb-4 text-center mt-0 pt-0">
+              <div 
+                className="w-full text-center mt-0 pt-0"
+                style={{ marginBottom: `${spazioDopoLogoMm}mm` }}
+              >
                 <img 
                   src={logoStudio} 
                   alt="Logo Studio" 
@@ -828,139 +892,193 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
         
         {/* BARRA DEGLI STRUMENTI (Nascosta in stampa) */}
         <header className="sticky top-0 left-0 right-0 z-[10000] w-full bg-slate-900 border-b border-slate-800 shadow-xl px-3 sm:px-4 py-2 print-hidden backdrop-blur-md">
-          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2.5 text-xs">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
             
-            {/* Controlli Personalizzazione Documento */}
+            {/* Controlli Personalizzazione Documento (Logo 1, Logo 2, Timbro, Margini) */}
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              {/* Carica Logo */}
-              <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition text-xs">
-                {loadingAssets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <Upload className="w-3.5 h-3.5 text-amber-400" />}
-                <span>{logoStudio ? 'Cambia Logo' : 'Carica Logo'}</span>
-                <input 
-                  type="file" 
-                  accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" 
-                  onChange={handleUploadLogo} 
-                  disabled={loadingAssets}
-                  className="hidden" 
-                />
-              </label>
+              
+              {/* 1. LOGO PRINCIPALE (PAGINA 1) */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <label className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded border border-slate-700 flex items-center gap-1 cursor-pointer transition text-[11px]">
+                  {loadingAssets ? <Loader2 className="w-3 h-3 animate-spin text-amber-400" /> : <Upload className="w-3 h-3 text-amber-400" />}
+                  <span>{logoStudio ? 'Logo 1' : '+ Logo 1'}</span>
+                  <input 
+                    type="file" 
+                    accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" 
+                    onChange={handleUploadLogo} 
+                    disabled={loadingAssets}
+                    className="hidden" 
+                  />
+                </label>
 
-              {logoStudio && (
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="px-2 py-1.5 bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-lg transition cursor-pointer text-xs"
-                >
-                  Rimuovi Logo
-                </button>
-              )}
+                {logoStudio && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      title="Rimuovi Logo Principale"
+                      className="px-1.5 py-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer text-[10px]"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                    <label className="flex items-center gap-0.5 text-slate-300 pl-1 border-l border-slate-800" title="Spazio vuoto dopo il Logo di Pagina 1 (in mm)">
+                      <span className="text-slate-400 text-[10px]">Spazio:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="50"
+                        value={spazioDopoLogoMm}
+                        onChange={handleSpazioDopoLogoChange}
+                        className="w-8 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[10px]"
+                      />
+                      <span className="text-slate-500 text-[9px]">mm</span>
+                    </label>
+                  </>
+                )}
+              </div>
 
-              {/* Carica Timbro PNG */}
-              <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer transition text-xs">
-                <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
-                <span>{timbroFirma ? 'Cambia Timbro' : 'Carica Timbro'}</span>
-                <input 
-                  type="file" 
-                  accept="image/png,image/webp" 
-                  onChange={handleUploadTimbro} 
-                  disabled={loadingAssets}
-                  className="hidden" 
-                />
-              </label>
+              {/* 2. LOGO SECONDARIO (PAGINE SUCCESSIVE > 1) */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <label className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded border border-slate-700 flex items-center gap-1 cursor-pointer transition text-[11px]" title="Carica intestazione più leggera per le pagine successive alla prima">
+                  {loadingAssets ? <Loader2 className="w-3 h-3 animate-spin text-amber-400" /> : <Upload className="w-3 h-3 text-blue-400" />}
+                  <span>{logoSecondarioUrl ? 'Logo 2 (Pag > 1)' : '+ Logo 2 (Pag > 1)'}</span>
+                  <input 
+                    type="file" 
+                    accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" 
+                    onChange={handleUploadLogoSecondario} 
+                    disabled={loadingAssets}
+                    className="hidden" 
+                  />
+                </label>
 
-              {/* Margini */}
-              <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
-                <span className="font-bold text-amber-400">Margini:</span>
-                <label className="flex items-center gap-0.5">
-                  <span className="text-slate-400 text-[11px]">S</span>
+                {logoSecondarioUrl && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogoSecondario}
+                      title="Rimuovi Logo Secondario"
+                      className="px-1.5 py-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer text-[10px]"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                    <label className="flex items-center gap-0.5 text-slate-300 pl-1 border-l border-slate-800" title="Spazio vuoto dopo il Logo nelle pagine successive (in mm)">
+                      <span className="text-slate-400 text-[10px]">Spazio:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="50"
+                        value={spazioDopoLogoSecondarioMm}
+                        onChange={handleSpazioDopoLogoSecondarioChange}
+                        className="w-8 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[10px]"
+                      />
+                      <span className="text-slate-500 text-[9px]">mm</span>
+                    </label>
+                  </>
+                )}
+              </div>
+
+              {/* 3. TIMBRO E FIRMA */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <label className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded border border-slate-700 flex items-center gap-1 cursor-pointer transition text-[11px]">
+                  <ImageIcon className="w-3 h-3 text-emerald-400" />
+                  <span>{timbroFirma ? 'Timbro' : '+ Timbro'}</span>
+                  <input 
+                    type="file" 
+                    accept="image/png,image/webp" 
+                    onChange={handleUploadTimbro} 
+                    disabled={loadingAssets}
+                    className="hidden" 
+                  />
+                </label>
+
+                {timbroFirma && (
+                  <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
+                    <span className="text-slate-400 text-[10px]">H:</span>
+                    <select
+                      value={timbroHeightCm}
+                      onChange={handleTimbroHeightChange}
+                      className="bg-slate-900 text-white font-bold text-[10px] p-0.5 rounded border border-slate-700 cursor-pointer"
+                    >
+                      <option value="3">3cm</option>
+                      <option value="4">4cm</option>
+                      <option value="5">5cm</option>
+                      <option value="6">6cm</option>
+                    </select>
+                    <MoveVertical className="w-3 h-3 text-amber-400 ml-0.5" />
+                    <input
+                      type="range"
+                      min="-25"
+                      max="15"
+                      step="1"
+                      value={timbroMarginMm}
+                      onChange={handleTimbroMarginChange}
+                      className="w-12 accent-amber-500 cursor-pointer"
+                      title="Offset verticale timbro rispetto alla firma"
+                    />
+                    <span className="font-mono text-white text-[9px] w-5 text-right">{timbroMarginMm}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. MARGINI FOGLIO A4 */}
+              <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
+                <span className="font-bold text-amber-400 text-[11px]">Margini:</span>
+                <label className="flex items-center gap-0.5" title="Margine Superiore">
+                  <span className="text-slate-400 text-[10px]">S</span>
                   <input
                     type="number"
                     min="0"
                     max="30"
                     value={marginTopMm}
                     onChange={handleMarginTopChange}
-                    className="w-8 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[11px]"
+                    className="w-7 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[10px]"
                   />
                 </label>
-                <label className="flex items-center gap-0.5">
-                  <span className="text-slate-400 text-[11px]">I</span>
+                <label className="flex items-center gap-0.5" title="Margine Inferiore">
+                  <span className="text-slate-400 text-[10px]">I</span>
                   <input
                     type="number"
                     min="0"
                     max="35"
                     value={marginBottomMm}
                     onChange={handleMarginBottomChange}
-                    className="w-8 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[11px]"
+                    className="w-7 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[10px]"
                   />
                 </label>
-                <label className="flex items-center gap-0.5">
-                  <span className="text-slate-400 text-[11px]">L</span>
+                <label className="flex items-center gap-0.5" title="Margine Laterale">
+                  <span className="text-slate-400 text-[10px]">L</span>
                   <input
                     type="number"
                     min="0"
                     max="30"
                     value={marginLateralMm}
                     onChange={handleMarginLateralChange}
-                    className="w-8 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[11px]"
+                    className="w-7 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-center text-white font-mono text-[10px]"
                   />
                 </label>
-                <span className="text-slate-500 text-[10px]">mm</span>
+                <span className="text-slate-500 text-[9px]">mm</span>
               </div>
 
-              {/* Distanza Timbro */}
-              {timbroFirma && (
-                <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
-                  <MoveVertical className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-[11px]">Firma:</span>
-                  <input
-                    type="range"
-                    min="-25"
-                    max="15"
-                    step="1"
-                    value={timbroMarginMm}
-                    onChange={handleTimbroMarginChange}
-                    className="w-14 accent-amber-500 cursor-pointer"
-                  />
-                  <span className="font-mono text-white text-[10px] w-7 text-right">{timbroMarginMm}mm</span>
-                </div>
-              )}
-
-              {/* Dimensione Timbro */}
-              {timbroFirma && (
-                <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
-                  <span className="text-[11px]">H.Timbro:</span>
-                  <select
-                    value={timbroHeightCm}
-                    onChange={handleTimbroHeightChange}
-                    className="bg-slate-900 text-white font-bold text-xs p-0.5 rounded border border-slate-700 cursor-pointer"
-                  >
-                    <option value="3">3cm</option>
-                    <option value="4">4cm</option>
-                    <option value="5">5cm</option>
-                    <option value="6">6cm</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Altezza Foto */}
+              {/* 5. ALTEZZA FOTO */}
               <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
                 <Sliders className="w-3 h-3 text-emerald-400" />
-                <span className="text-[11px]">H.Foto:</span>
+                <span className="text-[10px]">H.Foto:</span>
                 <select
                   value={fotoHeightCm}
                   onChange={handleFotoHeightChange}
-                  className="bg-slate-900 text-white font-bold text-xs p-0.5 rounded border border-slate-700 cursor-pointer"
+                  className="bg-slate-900 text-white font-bold text-[10px] p-0.5 rounded border border-slate-700 cursor-pointer"
                 >
                   <option value="4">4cm</option>
                   <option value="5">5cm</option>
                   <option value="6">6cm</option>
                 </select>
               </div>
+
             </div>
 
             {/* Controlli Zoom Schermo & Azioni di Stampa */}
-            <div className="flex items-center gap-2 ml-auto sm:ml-0">
-              {/* Controlli Zoom (Salva-vita su smartphone) */}
+            <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+              {/* Controlli Zoom */}
               <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
                 <button
                   type="button"
@@ -1002,7 +1120,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                 </button>
-                <span className="text-[10px] text-slate-400 font-mono w-9 text-right hidden xs:inline-block">
+                <span className="text-[10px] text-slate-400 font-mono w-8 text-right hidden xs:inline-block">
                   {Math.round(zoomScale * 100)}%
                 </span>
               </div>
@@ -1012,7 +1130,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                 type="button"
                 onClick={handlePrint}
                 className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center gap-1.5 shadow-lg transition cursor-pointer text-xs"
-                title="Apre la finestra ufficiale di stampa con i fogli A4 separati e salva in PDF"
+                title="Apre la finestra di stampa con i fogli A4 separati e salva in PDF"
               >
                 <Printer className="w-4 h-4" />
                 <span className="hidden sm:inline">Stampa / Salva in PDF</span>
@@ -1073,6 +1191,20 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                   }}
                   className="print-sheet-a4 bg-white text-neutral-900 text-[10pt] leading-relaxed font-sans relative"
                 >
+                  {/* LOGO SECONDARIO NELLE PAGINE SUCCESSIVE (PAGINA > 1) */}
+                  {pageIdx > 0 && logoSecondarioUrl && (
+                    <div 
+                      className="w-full text-center mt-0 pt-0"
+                      style={{ marginBottom: `${spazioDopoLogoSecondarioMm}mm` }}
+                    >
+                      <img 
+                        src={logoSecondarioUrl} 
+                        alt="Logo Intestazione Secondaria" 
+                        className="w-full max-h-16 object-contain mx-auto block mt-0 pt-0"
+                      />
+                    </div>
+                  )}
+
                   {/* Blocchi assegnati a questo foglio */}
                   {pageBlockIds.map(blockId => (
                     <React.Fragment key={blockId}>
@@ -1109,6 +1241,22 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
           }}
           className="font-sans text-[10pt] leading-relaxed"
         >
+          {/* Misurazione per il logo secondario se presente */}
+          {logoSecondarioUrl && (
+            <div data-block-id="secondary_header" className="w-full">
+              <div 
+                className="w-full text-center mt-0 pt-0"
+                style={{ marginBottom: `${spazioDopoLogoSecondarioMm}mm` }}
+              >
+                <img 
+                  src={logoSecondarioUrl} 
+                  alt="Logo Secondario" 
+                  className="w-full max-h-16 object-contain mx-auto block mt-0 pt-0"
+                />
+              </div>
+            </div>
+          )}
+
           {allBlockIds.map(blockId => (
             <div key={blockId} data-block-id={blockId} className="w-full">
               {renderBlock(blockId)}

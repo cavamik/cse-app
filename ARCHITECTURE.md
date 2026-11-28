@@ -102,6 +102,11 @@ ALTER TABLE sopralluoghi ADD COLUMN IF NOT EXISTS note_tecniche text;
 -- Collegamento Cantieri <-> Imprese e contatti email
 ALTER TABLE imprese ADD COLUMN IF NOT EXISTS email text;
 ALTER TABLE cantieri ADD COLUMN IF NOT EXISTS imprese_ids text[] DEFAULT '{}';
+
+-- Impostazioni intestazioni e spaziatura PDF
+ALTER TABLE impostazioni_studio ADD COLUMN IF NOT EXISTS spazio_dopo_logo_mm numeric DEFAULT 15;
+ALTER TABLE impostazioni_studio ADD COLUMN IF NOT EXISTS logo_secondario_url text;
+ALTER TABLE impostazioni_studio ADD COLUMN IF NOT EXISTS spazio_dopo_logo_secondario_mm numeric DEFAULT 10;
 ```
 
 ### Tabella `sopralluoghi`
@@ -169,6 +174,9 @@ ALTER TABLE cantieri ADD COLUMN IF NOT EXISTS imprese_ids text[] DEFAULT '{}';
 | `foto_height_cm` | `numeric` | Altezza standard fotografie in cm |
 | `timbro_height_cm`| `numeric` | Altezza timbro firma in cm |
 | `timbro_margin_mm`| `numeric` | Offset verticale del timbro rispetto alla firma in mm |
+| `spazio_dopo_logo_mm` | `numeric` | Spazio vuoto dopo il logo principale (Pag. 1) in mm |
+| `logo_secondario_url` | `text` | URL logo secondario / leggero per le pagine successive (> 1) |
+| `spazio_dopo_logo_secondario_mm` | `numeric` | Spazio vuoto dopo il logo secondario (Pag. > 1) in mm |
 
 ---
 
