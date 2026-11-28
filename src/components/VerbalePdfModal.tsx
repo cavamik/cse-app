@@ -120,7 +120,18 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     return () => window.removeEventListener('resize', calcFit);
   }, [isOpen]);
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    // Assicura che tutte le immagini del documento siano completamente caricate prima di aprire la stampa
+    const images = Array.from(document.querySelectorAll('#print-portal-root img')) as HTMLImageElement[];
+    await Promise.all(
+      images.map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise(resolve => {
+          img.onload = resolve;
+          img.onerror = resolve;
+        });
+      })
+    );
     window.print();
   };
 
@@ -384,58 +395,92 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     rilieviValidi
   ]);
 
-  // Motore di misurazione e paginazione dinamica con supporto per logo secondario e anti-titoletti orfani
+  // Motore di misurazione e paginazione dinamica con supporto per logo secondario, anti-titoletti orfani e ResizeObserver
   useEffect(() => {
     if (!isOpen || !measureContainerRef.current) return;
 
     const container = measureContainerRef.current;
-    const elements = container.querySelectorAll<HTMLElement>('[data-block-id]');
-    const heightsMap: Record<string, number> = {};
 
-    elements.forEach(el => {
-      const id = el.getAttribute('data-block-id');
-      if (id) {
-        heightsMap[id] = el.getBoundingClientRect().height;
-      }
-    });
+    const recalculatePages = () => {
+      const elements = container.querySelectorAll<HTMLElement>('[data-block-id]');
+      const heightsMap: Record<string, number> = {};
 
-    const pxPerMm = 794 / 210; // ~3.78 px/mm
-    // Altezza stampabile utile per foglio (297mm meno margini sup e inf con buffer di sicurezza 16px)
-    const printableHeightPx = Math.max(200, (297 - marginTopMm - marginBottomMm) * pxPerMm - 16);
-    const secondaryHeaderH = logoSecondarioUrl ? (heightsMap['secondary_header'] || 0) : 0;
+      elements.forEach(el => {
+        const id = el.getAttribute('data-block-id');
+        if (id) {
+          heightsMap[id] = el.getBoundingClientRect().height;
+        }
+      });
 
-    const computedPages: string[][] = [[]];
-    let currentH = 0;
+      const pxPerMm = 794 / 210; // ~3.78 px/mm
+      // Altezza stampabile utile per foglio (297mm meno margini sup e inf con buffer di sicurezza 24px)
+      const printableHeightPx = Math.max(200, (297 - marginTopMm - marginBottomMm) * pxPerMm - 24);
+      const secondaryHeaderH = logoSecondarioUrl ? (heightsMap['secondary_header'] || 0) : 0;
 
-    for (let i = 0; i < allBlockIds.length; i++) {
-      const bId = allBlockIds[i];
-      const bH = heightsMap[bId] || 0;
-      const isFirstPage = computedPages.length === 1;
-      const effectivePageLimit = isFirstPage ? printableHeightPx : (printableHeightPx - secondaryHeaderH);
+      const computedPages: string[][] = [[]];
+      let currentH = 0;
 
-      // 1. PROTEZIONE ANTI-TITOLETTO ORFANO PER RILIEVI FOTOGRAFICI:
-      // Se il titolo della sezione fotografica non ci sta insieme alla prima scheda foto, spostali entrambi nel nuovo foglio!
-      if (bId === 'rilievi_header' && allBlockIds[i + 1]?.startsWith('rilievo_')) {
-        const firstRilievoH = heightsMap[allBlockIds[i + 1]] || 0;
-        if (currentH > 0 && currentH + bH + firstRilievoH > effectivePageLimit) {
+      for (let i = 0; i < allBlockIds.length; i++) {
+        const bId = allBlockIds[i];
+        const bH = heightsMap[bId] || 0;
+        const isFirstPage = computedPages.length === 1;
+        const effectivePageLimit = isFirstPage ? printableHeightPx : (printableHeightPx - secondaryHeaderH);
+
+        // 1. PROTEZIONE ANTI-TITOLETTO ORFANO PER RILIEVI FOTOGRAFICI:
+        // Se il titolo della sezione fotografica non ci sta insieme alla prima scheda foto, spostali entrambi nel nuovo foglio!
+        if (bId === 'rilievi_header' && allBlockIds[i + 1]?.startsWith('rilievo_')) {
+          const firstRilievoH = heightsMap[allBlockIds[i + 1]] || 0;
+          if (currentH > 0 && currentH + bH + firstRilievoH > effectivePageLimit) {
+            computedPages.push([]);
+            currentH = 0;
+          }
+        }
+
+        const currentLimit = computedPages.length === 1 ? printableHeightPx : (printableHeightPx - secondaryHeaderH);
+
+        // 2. Se il blocco sfora lo spazio rimanente della pagina attuale, apri un nuovo foglio
+        if (currentH > 0 && currentH + bH > currentLimit) {
           computedPages.push([]);
           currentH = 0;
         }
+
+        computedPages[computedPages.length - 1].push(bId);
+        currentH += bH;
       }
 
-      const currentLimit = computedPages.length === 1 ? printableHeightPx : (printableHeightPx - secondaryHeaderH);
+      setPages(computedPages);
+    };
 
-      // 2. Se il blocco sfora lo spazio rimanente della pagina attuale, apri un nuovo foglio
-      if (currentH > 0 && currentH + bH > currentLimit) {
-        computedPages.push([]);
-        currentH = 0;
+    // Esegui subito il calcolo iniziale
+    recalculatePages();
+
+    // Ricalcola dinamicamente al caricamento di tutte le immagini (loghi, foto, timbri)
+    const imgs = container.querySelectorAll('img');
+    imgs.forEach(img => {
+      if (!img.complete) {
+        img.addEventListener('load', recalculatePages);
+        img.addEventListener('error', recalculatePages);
       }
+    });
 
-      computedPages[computedPages.length - 1].push(bId);
-      currentH += bH;
+    // Osserva le variazioni dimensionali del DOM (es. font applicati, ridimensionamento contenuti)
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => {
+        recalculatePages();
+      });
+      ro.observe(container);
     }
 
-    setPages(computedPages);
+    return () => {
+      imgs.forEach(img => {
+        img.removeEventListener('load', recalculatePages);
+        img.removeEventListener('error', recalculatePages);
+      });
+      if (ro) {
+        ro.disconnect();
+      }
+    };
   }, [
     isOpen,
     sopralluogo,
@@ -789,16 +834,24 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
     }
   };
 
-  const activePages = pages.length > 0 ? pages : [allBlockIds];
+  const activePages = (pages.length > 0 && pages.some(p => p.length > 0))
+    ? pages.filter(p => p.length > 0)
+    : [allBlockIds];
 
   // UTILIZZO DI REACT PORTAL: il modale viene renderizzato direttamente in document.body
   return createPortal(
     <div id="print-portal-root">
-      {/* REGOLE DI STAMPA A4: ISOLAMENTO ASSOLUTO DALL'APPLICAZIONE */}
+      {/* REGOLE DI STAMPA A4: CORRISPONDENZA 1:1 CON L'ANTEPRIMA A MONITOR */}
       <style>{`
         @page {
           size: A4 portrait;
-          margin: ${marginTopMm}mm ${marginLateralMm}mm ${marginBottomMm}mm ${marginLateralMm}mm !important;
+          margin: 0 !important;
+        }
+
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
         }
 
         @media print {
@@ -816,6 +869,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             background: white !important;
             color: #111 !important;
             overflow: visible !important;
+            width: 100% !important;
           }
 
           html, body {
@@ -826,6 +880,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             overflow: visible !important;
             margin: 0 !important;
             padding: 0 !important;
+            width: 100% !important;
           }
 
           .print-modal-wrapper {
@@ -839,50 +894,66 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             margin: 0 !important;
           }
 
+          /* In stampa ogni foglio è un blocco A4 esatto da 210mm x 297mm */
           .sheet-scaler-wrapper {
-            position: static !important;
+            position: relative !important;
             display: block !important;
-            width: 100% !important;
-            height: auto !important;
+            width: 210mm !important;
+            height: 297mm !important;
+            max-height: 297mm !important;
+            min-height: 297mm !important;
             margin: 0 !important;
             padding: 0 !important;
+            box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .sheet-scaler-wrapper:not(:last-child) {
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+
+          .sheet-scaler-wrapper:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
 
           .sheet-outer-crop {
-            position: static !important;
+            position: relative !important;
             display: block !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
+            width: 210mm !important;
+            height: 297mm !important;
+            max-height: 297mm !important;
+            min-height: 297mm !important;
+            overflow: hidden !important;
             box-shadow: none !important;
             border-radius: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
+            box-sizing: border-box !important;
           }
 
           .print-sheet-a4 {
-            position: static !important;
+            position: relative !important;
             display: block !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            min-height: auto !important;
-            height: auto !important;
+            width: 210mm !important;
+            height: 297mm !important;
+            max-height: 297mm !important;
+            min-height: 297mm !important;
+            box-sizing: border-box !important;
             transform: none !important;
             margin: 0 !important;
-            padding: 0 !important;
+            padding-top: ${marginTopMm}mm !important;
+            padding-bottom: ${marginBottomMm}mm !important;
+            padding-left: ${marginLateralMm}mm !important;
+            padding-right: ${marginLateralMm}mm !important;
             box-shadow: none !important;
             border: none !important;
             background: white !important;
             font-size: 10pt !important;
             line-height: 1.5 !important;
-            page-break-after: always !important;
-            break-after: page !important;
-          }
-
-          /* L'ultimo foglio non deve generare una pagina bianca vuota alla fine */
-          .sheet-scaler-wrapper:last-child .print-sheet-a4 {
-            page-break-after: auto !important;
-            break-after: auto !important;
+            overflow: hidden !important;
           }
         }
       `}</style>
@@ -1189,7 +1260,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
                     transform: `scale(${zoomScale})`,
                     transformOrigin: 'top left',
                   }}
-                  className="print-sheet-a4 bg-white text-neutral-900 text-[10pt] leading-relaxed font-sans relative"
+                  className="print-sheet-a4 bg-white text-neutral-900 text-[10pt] leading-normal font-sans relative"
                 >
                   {/* LOGO SECONDARIO NELLE PAGINE SUCCESSIVE (PAGINA > 1) */}
                   {pageIdx > 0 && logoSecondarioUrl && (
@@ -1239,7 +1310,7 @@ export const VerbalePdfModal: React.FC<VerbalePdfModalProps> = ({
             paddingLeft: `${marginLateralMm}mm`,
             paddingRight: `${marginLateralMm}mm`,
           }}
-          className="font-sans text-[10pt] leading-relaxed"
+          className="font-sans text-[10pt] leading-normal"
         >
           {/* Misurazione per il logo secondario se presente */}
           {logoSecondarioUrl && (
