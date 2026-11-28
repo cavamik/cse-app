@@ -4,7 +4,8 @@ import {
   Building2, Users, Loader2, CheckSquare, Square, Clock,
   ArrowUp, ArrowDown, AlertTriangle, Check, Eye, Compass,
   Layers, CloudSun, ScrollText, MapPin, Maximize2, HardHat,
-  Lock, Unlock, ClipboardPaste, UploadCloud
+  Lock, Unlock, ClipboardPaste, UploadCloud, ChevronLeft,
+  ChevronRight, ListOrdered
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { compressImage } from '../utils/imageCompressor';
@@ -92,6 +93,35 @@ const DISPOSITIVI_PREDEFINITI = [
   'MEZZI DI SOLLEVAMENTO'
 ];
 
+interface StepDef {
+  id: number;
+  label: string;
+  shortLabel: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const STEPS_CSE: StepDef[] = [
+  { id: 1, label: 'Dati Generali', shortLabel: 'Dati', icon: Clock },
+  { id: 2, label: 'Presenze & Lavori', shortLabel: 'Presenze', icon: Users },
+  { id: 3, label: 'Sicurezza & Apprestamenti', shortLabel: 'Sicurezza', icon: CheckSquare },
+  { id: 4, label: 'Coordinamento', shortLabel: 'Note', icon: ScrollText },
+  { id: 5, label: 'Rilievo Fotografico', shortLabel: 'Foto', icon: Camera },
+  { id: 6, label: 'Prescrizioni & Esito', shortLabel: 'Esito', icon: AlertTriangle },
+];
+
+const STEPS_DL: StepDef[] = [
+  { id: 1, label: 'Dati & Meteo', shortLabel: 'Dati', icon: CloudSun },
+  { id: 2, label: 'Maestranze & Lavori', shortLabel: 'Maestranze', icon: Users },
+  { id: 3, label: 'Ordini di Servizio', shortLabel: 'OdS', icon: ScrollText },
+  { id: 4, label: 'Rilievo Fotografico', shortLabel: 'Foto', icon: Camera },
+];
+
+const STEPS_RILIEVO: StepDef[] = [
+  { id: 1, label: 'Dati Generali', shortLabel: 'Dati', icon: Clock },
+  { id: 2, label: 'Premesse Tecniche', shortLabel: 'Premesse', icon: ScrollText },
+  { id: 3, label: 'Rilievo & Misure', shortLabel: 'Rilievo', icon: Camera },
+];
+
 export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({ 
   isOpen, 
   onClose, 
@@ -107,6 +137,29 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const [tipoVerbale, setTipoVerbale] = useState<TipoVerbale>('CSE');
   const [isTipoUnlocked, setIsTipoUnlocked] = useState(false);
   const [cantiereId, setCantiereId] = useState('');
+
+  // Navigazione Guidata a Step o Vista Completa
+  const [currentStep, setCurrentStep] = useState<number>(1);
+  const [viewMode, setViewMode] = useState<'steps' | 'all'>('steps');
+
+  const currentStepsList = tipoVerbale === 'DL' 
+    ? STEPS_DL 
+    : tipoVerbale === 'RILIEVO' 
+      ? STEPS_RILIEVO 
+      : STEPS_CSE;
+
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentStep(1);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    const max = currentStepsList.length;
+    if (currentStep > max) {
+      setCurrentStep(max);
+    }
+  }, [tipoVerbale, currentStepsList.length, currentStep]);
   const [dataSopralluogo, setDataSopralluogo] = useState(() => new Date().toISOString().split('T')[0]);
   const [oraSopralluogo, setOraSopralluogo] = useState('09:00');
   const [argomentiDiscussi, setArgomentiDiscussi] = useState('');
@@ -834,7 +887,14 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cantiereId) {
-      alert('Seleziona un cantiere.');
+      alert('Seleziona un cantiere prima di procedere al salvataggio.');
+      setCurrentStep(1);
+      return;
+    }
+
+    if (tipoVerbale === 'CSE' && sospensione && !motivoSospensione?.trim()) {
+      alert('Inserisci la motivazione della sospensione dei lavori.');
+      setCurrentStep(6);
       return;
     }
 
@@ -1109,6 +1169,16 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setViewMode(prev => prev === 'steps' ? 'all' : 'steps')}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium rounded-xl border border-slate-700 flex items-center gap-1.5 shadow-sm transition cursor-pointer text-xs"
+                title={viewMode === 'steps' ? "Passa a vista completa continua (tutte le sezioni a scorrimento)" : "Passa a compilazione guidata a step"}
+              >
+                <ListOrdered className="w-4 h-4 text-slate-400" />
+                <span className="hidden sm:inline">{viewMode === 'steps' ? 'Vista continua' : 'A Step'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleOpenPreview}
                 className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold rounded-xl border border-amber-500/30 flex items-center gap-1.5 shadow-sm transition cursor-pointer text-xs"
                 title="Vedi l'anteprima del verbale impaginato prima di salvare"
@@ -1130,9 +1200,60 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
             </div>
           </div>
 
+          {/* Barra Stepper di Navigazione (visibile in modalità a step) */}
+          {viewMode === 'steps' && (
+            <div className="bg-slate-950/90 border-b border-slate-800 px-3 sm:px-5 py-2.5 overflow-x-auto scrollbar-none shrink-0 sticky top-[73px] z-10">
+              <div className="flex items-center gap-1.5 min-w-max">
+                {currentStepsList.map((step) => {
+                  const isActive = currentStep === step.id;
+                  const isPast = currentStep > step.id;
+                  const Icon = step.icon;
+
+                  return (
+                    <button
+                      key={step.id}
+                      type="button"
+                      onClick={() => setCurrentStep(step.id)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                        isActive
+                          ? tipoVerbale === 'DL'
+                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 shadow-sm'
+                            : tipoVerbale === 'RILIEVO'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                          : isPast
+                            ? 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                            : 'bg-transparent text-slate-500 border-transparent hover:text-slate-400 hover:bg-slate-900/50'
+                      }`}
+                    >
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                        isActive
+                          ? tipoVerbale === 'DL'
+                            ? 'bg-blue-500 text-slate-950'
+                            : tipoVerbale === 'RILIEVO'
+                              ? 'bg-emerald-500 text-slate-950'
+                              : 'bg-amber-500 text-slate-950'
+                          : isPast
+                            ? 'bg-slate-800 text-slate-300'
+                            : 'bg-slate-900 text-slate-500'
+                      }`}>
+                        {step.id}
+                      </span>
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="whitespace-nowrap">{step.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1 text-slate-200">
             
-            {/* SELETTORE TIPOLOGIA ATTO (CSE | DL | RILIEVO) */}
+            {/* STEP 1: SELETTORE TIPOLOGIA & DATI GENERALI (CANTIERE, DATA, ORA) */}
+            {(viewMode === 'all' || currentStep === 1) && (
+              <div className="space-y-6">
+                {/* SELETTORE TIPOLOGIA ATTO (CSE | DL | RILIEVO) */}
             <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
@@ -1348,26 +1469,31 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 />
               </div>
             )}
-
-            {/* NOTE GENERALI / FINALITÀ (SPECIFICA PER RILIEVO) */}
-            {tipoVerbale === 'RILIEVO' && (
-              <div className="bg-slate-950/60 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
-                <label className="font-bold uppercase tracking-wider text-emerald-400 text-xs flex items-center gap-1.5">
-                  <Camera className="w-4 h-4 text-emerald-400" />
-                  Note Generali & Finalità del Rilievo Tecnico
-                </label>
-                <p className="text-xs text-slate-400">
-                  Specifica la finalità (es. Stato di consistenza, SAL contabilità, accertamento difformità, rilievo strutturale/impiantistico).
-                </p>
-                <textarea
-                  rows={3}
-                  placeholder="Inserisci le premesse tecniche del rilievo, gli strumenti di misura impiegati..."
-                  value={noteTecniche}
-                  onChange={(e) => setNoteTecniche(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none leading-relaxed"
-                />
               </div>
             )}
+
+            {/* STEP 2: SOGGETTI CONVENUTI, IMPRESE & FASI DI LAVORO (CSE/DL) / PREMESSE TECNICHE (RILIEVO) */}
+            {(viewMode === 'all' || currentStep === 2) && (
+              <div className="space-y-6">
+                {/* NOTE GENERALI / FINALITÀ (SPECIFICA PER RILIEVO) */}
+                {tipoVerbale === 'RILIEVO' && (
+                  <div className="bg-slate-950/60 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
+                    <label className="font-bold uppercase tracking-wider text-emerald-400 text-xs flex items-center gap-1.5">
+                      <Camera className="w-4 h-4 text-emerald-400" />
+                      Note Generali & Finalità del Rilievo Tecnico
+                    </label>
+                    <p className="text-xs text-slate-400">
+                      Specifica la finalità (es. Stato di consistenza, SAL contabilità, accertamento difformità, rilievo strutturale/impiantistico).
+                    </p>
+                    <textarea
+                      rows={3}
+                      placeholder="Inserisci le premesse tecniche del rilievo, gli strumenti di misura impiegati..."
+                      value={noteTecniche}
+                      onChange={(e) => setNoteTecniche(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none leading-relaxed"
+                    />
+                  </div>
+                )}
 
             {/* SOGGETTI CONVENUTI */}
             <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-4">
@@ -1776,9 +1902,11 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             </div>
           )}
+              </div>
+            )}
 
-          {/* DISPOSITIVI E APPRESTAMENTI (SOLO CSE) */}
-            {tipoVerbale === 'CSE' && (
+            {/* STEP 3 (CSE): DISPOSITIVI E APPRESTAMENTI */}
+            {tipoVerbale === 'CSE' && (viewMode === 'all' || currentStep === 3) && (
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
@@ -1857,8 +1985,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             )}
 
-            {/* ARGOMENTI DISCUSSI (SOLO CSE) */}
-            {tipoVerbale === 'CSE' && (
+            {/* STEP 4 (CSE): ARGOMENTI DISCUSSI */}
+            {tipoVerbale === 'CSE' && (viewMode === 'all' || currentStep === 4) && (
               <div className="space-y-1.5">
                 <label className="block font-semibold text-slate-200 text-xs sm:text-sm">
                   Nel Corso della Riunione Sono Stati Discussi i Seguenti Argomenti:
@@ -1873,8 +2001,8 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             )}
 
-            {/* ORDINI DI SERVIZIO E DISPOSIZIONI DL (SOLO DL) */}
-            {tipoVerbale === 'DL' && (
+            {/* STEP 3 (DL): ORDINI DI SERVIZIO E DISPOSIZIONI DL */}
+            {tipoVerbale === 'DL' && (viewMode === 'all' || currentStep === 3) && (
               <div className="bg-slate-950/60 border border-blue-500/30 rounded-xl p-4 space-y-2.5">
                 <label className="font-bold uppercase tracking-wider text-blue-400 text-xs flex items-center gap-1.5">
                   <ScrollText className="w-4 h-4 text-blue-400" />
@@ -1893,8 +2021,13 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
               </div>
             )}
 
-            {/* RILIEVI VISIVI E FOTO */}
-            <div className="space-y-3">
+            {/* RILIEVI VISIVI E FOTO (Step 5 per CSE, Step 4 per DL, Step 3 per RILIEVO) */}
+            {(viewMode === 'all' ||
+              (tipoVerbale === 'CSE' && currentStep === 5) ||
+              (tipoVerbale === 'DL' && currentStep === 4) ||
+              (tipoVerbale === 'RILIEVO' && currentStep === 3)
+            ) && (
+              <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <div>
                   <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
@@ -2134,142 +2267,178 @@ export const ModalSopralluogo: React.FC<ModalSopralluogoProps> = ({
                 </div>
               );
             })}
-            </div>
+              </div>
+            )}
 
-            {/* PRESCRIZIONI (SOLO CSE) */}
-            {tipoVerbale === 'CSE' && (
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
-                      <Building2 className="w-4 h-4 text-amber-500" />
-                      Misure Prescrittive & Adeguamenti Richiesti
-                    </label>
-                    <span className="text-xs text-slate-500">Le nuove prescrizioni compaiono in cima. Usa le frecce per riordinarle.</span>
+            {/* STEP 6 (CSE): PRESCRIZIONI & SOSPENSIONE LAVORI */}
+            {tipoVerbale === 'CSE' && (viewMode === 'all' || currentStep === 6) && (
+              <div className="space-y-6">
+                {/* PRESCRIZIONI */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <label className="font-bold uppercase tracking-wider text-slate-300 text-xs flex items-center gap-1.5">
+                        <Building2 className="w-4 h-4 text-amber-500" />
+                        Misure Prescrittive & Adeguamenti Richiesti
+                      </label>
+                      <span className="text-xs text-slate-500">Le nuove prescrizioni compaiono in cima. Usa le frecce per riordinarle.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addPrescrizione}
+                      className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20 text-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> + Aggiungi Prescrizione
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addPrescrizione}
-                    className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20 text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> + Aggiungi Prescrizione
-                  </button>
-                </div>
 
-                {prescrizioni.map((p, idx) => (
-                  <div key={p.id} className="p-3.5 bg-slate-950/70 border border-amber-500/20 rounded-xl space-y-2.5">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          title="Sposta su"
-                          disabled={idx === 0}
-                          onClick={() => movePrescrizione(idx, 'up')}
-                          className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          <ArrowUp className="w-4 h-4" />
+                  {prescrizioni.map((p, idx) => (
+                    <div key={p.id} className="p-3.5 bg-slate-950/70 border border-amber-500/20 rounded-xl space-y-2.5">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            title="Sposta su"
+                            disabled={idx === 0}
+                            onClick={() => movePrescrizione(idx, 'up')}
+                            className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            <ArrowUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Sposta giù"
+                            disabled={idx === prescrizioni.length - 1}
+                            onClick={() => movePrescrizione(idx, 'down')}
+                            className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            <ArrowDown className="w-4 h-4" />
+                          </button>
+                          <span className="font-semibold text-amber-400 ml-1.5 text-xs">Prescrizione #{idx + 1}</span>
+                        </div>
+
+                        <button type="button" onClick={() => removePrescrizione(p.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer p-1">
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                        <button
-                          type="button"
-                          title="Sposta giù"
-                          disabled={idx === prescrizioni.length - 1}
-                          onClick={() => movePrescrizione(idx, 'down')}
-                          className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          <ArrowDown className="w-4 h-4" />
-                        </button>
-                        <span className="font-semibold text-amber-400 ml-1.5 text-xs">Prescrizione #{idx + 1}</span>
                       </div>
 
-                      <button type="button" onClick={() => removePrescrizione(p.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer p-1">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <input
-                      type="text"
-                      required
-                      placeholder="Disposizione prescrittiva..."
-                      value={p.testo}
-                      onChange={(e) => updatePrescrizione(p.id, 'testo', e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
-                    />
-
-                    <div className="grid grid-cols-2 gap-2.5">
                       <input
                         type="text"
-                        placeholder="Impresa destinataria"
-                        value={p.impresa_destinataria || ''}
-                        onChange={(e) => updatePrescrizione(p.id, 'impresa_destinataria', e.target.value)}
-                        className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
+                        required
+                        placeholder="Disposizione prescrittiva..."
+                        value={p.testo}
+                        onChange={(e) => updatePrescrizione(p.id, 'testo', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
                       />
-                      <input
-                        type="date"
-                        value={p.data_scadenza || ''}
-                        onChange={(e) => updatePrescrizione(p.id, 'data_scadenza', e.target.value)}
-                        className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
-                      />
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <input
+                          type="text"
+                          placeholder="Impresa destinataria"
+                          value={p.impresa_destinataria || ''}
+                          onChange={(e) => updatePrescrizione(p.id, 'impresa_destinataria', e.target.value)}
+                          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
+                        />
+                        <input
+                          type="date"
+                          value={p.data_scadenza || ''}
+                          onChange={(e) => updatePrescrizione(p.id, 'data_scadenza', e.target.value)}
+                          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200"
+                        />
+                      </div>
                     </div>
+                  ))}
+                </div>
+
+                {/* SOSPENSIONE LAVORI */}
+                <div className={`p-4 rounded-xl border ${
+                  sospensione ? 'bg-rose-950/40 border-rose-500 text-rose-200' : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <AlertOctagon className={`w-5 h-5 ${sospensione ? 'text-rose-500' : 'text-slate-500'}`} />
+                      <div>
+                        <h4 className="font-bold text-white text-sm">Disponi Sospensione Lavori (Art. 92 c.1 lett. f)</h4>
+                        <p className="text-xs text-slate-400">Solo per pericolo grave ed imminente</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSospensione(!sospensione)}
+                      className={`px-3.5 py-2 rounded-lg font-bold text-xs cursor-pointer ${
+                        sospensione ? 'bg-rose-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {sospensione ? 'SOSPENSIONE ATTIVA' : 'Sospendi Lavori'}
+                    </button>
                   </div>
-                ))}
+                  {sospensione && (
+                    <textarea
+                      required
+                      rows={3}
+                      placeholder="Motivazione del pericolo grave e imminente..."
+                      value={motivoSospensione}
+                      onChange={(e) => setMotivoSospensione(e.target.value)}
+                      className="w-full mt-3 bg-slate-950 border border-rose-500/40 rounded-xl p-3 text-sm text-white"
+                    />
+                  )}
+                </div>
               </div>
             )}
 
-            {/* SOSPENSIONE LAVORI (SOLO CSE) */}
-            {tipoVerbale === 'CSE' && (
-              <div className={`p-4 rounded-xl border ${
-                sospensione ? 'bg-rose-950/40 border-rose-500 text-rose-200' : 'bg-slate-950/40 border-slate-800 text-slate-400'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <AlertOctagon className={`w-5 h-5 ${sospensione ? 'text-rose-500' : 'text-slate-500'}`} />
-                    <div>
-                      <h4 className="font-bold text-white text-sm">Disponi Sospensione Lavori (Art. 92 c.1 lett. f)</h4>
-                      <p className="text-xs text-slate-400">Solo per pericolo grave ed imminente</p>
-                    </div>
-                  </div>
+            {/* Footer Azioni con Navigazione Wizard Precedente / Successivo / Salva */}
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3 sticky bottom-0 bg-slate-900 pb-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3.5 py-2 text-xs sm:text-sm text-slate-400 hover:text-white cursor-pointer rounded-xl hover:bg-slate-800 transition"
+                >
+                  Annulla
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Precedente */}
+                {viewMode === 'steps' && currentStep > 1 && (
                   <button
                     type="button"
-                    onClick={() => setSospensione(!sospensione)}
-                    className={`px-3.5 py-2 rounded-lg font-bold text-xs cursor-pointer ${
-                      sospensione ? 'bg-rose-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
+                    onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer transition shadow-sm"
                   >
-                    {sospensione ? 'SOSPENSIONE ATTIVA' : 'Sospendi Lavori'}
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Precedente</span>
                   </button>
-                </div>
-                {sospensione && (
-                  <textarea
-                    required
-                    rows={3}
-                    placeholder="Motivazione del pericolo grave e imminente..."
-                    value={motivoSospensione}
-                    onChange={(e) => setMotivoSospensione(e.target.value)}
-                    className="w-full mt-3 bg-slate-950 border border-rose-500/40 rounded-xl p-3 text-sm text-white"
-                  />
                 )}
-              </div>
-            )}
 
-            {/* Footer Azioni */}
-            <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3 sticky bottom-0 bg-slate-900 pb-1">
-              <button type="button" onClick={onClose} className="px-4 py-2.5 text-sm text-slate-400 hover:text-white cursor-pointer">
-                Annulla
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 text-sm"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Salvataggio...</span>
-                  </>
-                ) : (
-                  <span>{isEditMode ? 'Aggiorna Verbale' : `Registra Verbale ${tipoVerbale}`}</span>
+                {/* Passo Successivo */}
+                {viewMode === 'steps' && currentStep < currentStepsList.length && (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(prev => Math.min(currentStepsList.length, prev + 1))}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 hover:border-amber-500/50 text-amber-400 text-xs sm:text-sm font-bold rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+                  >
+                    <span>Passo Successivo</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 )}
-              </button>
+
+                {/* Salva Verbale (sempre disponibile e attivo da qualunque step) */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 text-xs sm:text-sm"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Salvataggio...</span>
+                    </>
+                  ) : (
+                    <span>{isEditMode ? 'Aggiorna Verbale' : `Salva Verbale ${tipoVerbale}`}</span>
+                  )}
+                </button>
+              </div>
             </div>
 
           </form>

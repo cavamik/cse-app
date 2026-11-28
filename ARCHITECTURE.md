@@ -61,12 +61,13 @@ src/
 │   ├── SopralluoghiView.tsx      # Registro cronologico verbali con filtro cantiere, pill filter per ruolo (Tutti, CSE, DL, Rilievo),
 │   │                             # badge ruolo, azione "Duplica come..." e anteprime fotografiche
 │   ├── ModalSopralluogo.tsx      # Editor universale di sopralluogo multi-ruolo:
+│   │                             #  - Navigazione a Step (Wizard) modulare a 3-6 fasi non vincolanti con selettore "Vista continua / Vista a Step"
 │   │                             #  - Selezione ruolo (CSE, DL, RILIEVO) con lock di default in modifica e pulsante "Sblocca tipologia"
 │   │                             #  - Cambio tipologia non distruttivo: preserva i dati di tutte le sezioni anche passando da un ruolo all'altro
 │   │                             #  - Campi condizionali per ruolo (Meteo/OdS per DL; Note tecniche/Misure per RILIEVO; Apprestamenti/Prescrizioni per CSE)
 │   │                             #  - Compressione WebP ~100 KB in tempo reale e staging Blob per storage offline
 │   │                             #  - Acquisizione rapida foto da PC: Drag & Drop e Incolla da appunti (Ctrl+V) per foto copiate da Google Foto o screenshot
-│   │                             #  - Anteprima PDF live prima del salvataggio
+│   │                             #  - Anteprima PDF live prima del salvataggio e salvataggio rapido da qualsiasi step
 │   ├── ImpreseView.tsx           # Anagrafica operatori economici (imprese, lavoratori autonomi), filtro per cantiere,
 │   │                             # email, associazione rapida e sezione "Verbali in cui è presente" con badge ruolo e azioni rapide (PDF/Modifica)
 │   └── VerbalePdfModal.tsx       # Modale di stampa/export PDF A4 conforme per ruolo con logo studio,
